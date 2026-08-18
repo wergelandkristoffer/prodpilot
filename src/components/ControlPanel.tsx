@@ -5,7 +5,9 @@ import { useRouter } from "next/navigation";
 import * as XLSX from "xlsx";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase";
 import SupabaseSetupNotice from "@/components/SupabaseSetupNotice";
-import { COLORS, AgendaSnapshotItem, SessionRow } from "@/lib/types";
+import ProjectSidebar, { ProjectOption } from "@/components/ProjectSidebar";
+import ProjectSettingsModal from "@/components/ProjectSettingsModal";
+import { COLORS, SessionRow } from "@/lib/types";
 import { fmt, fmtClock, calcRemaining } from "@/lib/timer";
 import { useLiveRemaining } from "@/hooks/useLiveRemaining";
 
@@ -21,11 +23,6 @@ interface LocalItem {
   duration_secs: number;
   note: string;
   color: string;
-}
-
-interface ProgramOption {
-  id: string;
-  name: string;
 }
 
 function newKey() {
@@ -87,8 +84,10 @@ export default function ControlPanel({
   const [agenda, setAgenda] = useState<LocalItem[]>([]);
   const [ready, setReady] = useState(false);
   const [initError, setInitError] = useState<string | null>(null);
-  const [programs, setPrograms] = useState<ProgramOption[]>([]);
-  const [selectedProgram, setSelectedProgram] = useState("");
+  const [projects, setProjects] = useState<ProjectOption[]>([]);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [nameDraft, setNameDraft] = useState("");
+  const [copiedLink, setCopiedLink] = useState<"display" | "remote" | null>(null);
   const [origin, setOrigin] = useState("");
   const [now, setNow] = useState(() => new Date());
 
@@ -145,6 +144,19 @@ export default function ControlPanel({
     }
   }, []);
 
+  // ── PROSJEKTLISTE (venstremeny) ────────────────────────────────
+  const refreshProjects = useCallback(async () => {
+    const { data } = await supabase
+      .from("sessions")
+      .select("id,name,updated_at")
+      .order("updated_at", { ascending: false });
+    if (data) setProjects(data as ProjectOption[]);
+  }, []);
+
+  useEffect(() => {
+    refreshProjects();
+  }, [refreshProjects]);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -158,25 +170,42 @@ export default function ControlPanel({
             .select("*")
             .eq("id", sid)
             .maybeSingle();
-          if (!data) sid = null; // fantes ikke – lag ny under
+          if (!data) sid = null; // fantes ikke – åpne/lag et under
           else if (!cancelled) setSession(data as SessionRow);
         }
 
         if (!sid) {
-          const { data, error } = await supabase
+          // Ingen prosjekt-id i URL-en — åpne det sist brukte prosjektet
+          // hvis brukeren har et fra før, ellers opprett et nytt.
+          const { data: recent } = await supabase
             .from("sessions")
-            .insert({ name: "Nytt program" })
             .select("*")
-            .single();
-          if (error || !data) {
-            console.error("Kunne ikke opprette sesjon:", error);
-            if (!cancelled) setInitError(describeSupabaseError(error));
-            return;
-          }
-          sid = data.id;
-          if (!cancelled) {
-            setSession(data as SessionRow);
-            router.replace(`/?s=${sid}`);
+            .order("updated_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+          if (recent) {
+            sid = recent.id;
+            if (!cancelled) {
+              setSession(recent as SessionRow);
+              router.replace(`/?s=${sid}`);
+            }
+          } else {
+            const { data, error } = await supabase
+              .from("sessions")
+              .insert({ name: "Nytt prosjekt" })
+              .select("*")
+              .single();
+            if (error || !data) {
+              console.error("Kunne ikke opprette prosjekt:", error);
+              if (!cancelled) setInitError(describeSupabaseError(error));
+              return;
+            }
+            sid = data.id;
+            if (!cancelled) {
+              setSession(data as SessionRow);
+              router.replace(`/?s=${sid}`);
+            }
           }
         }
 
@@ -232,23 +261,6 @@ export default function ControlPanel({
       supabase.removeChannel(channel);
     };
   }, [sessionId, fetchAgenda]);
-
-  // ── PROGRAMLISTE ──────────────────────────────────────────────
-  const refreshPrograms = useCallback(async () => {
-    const { data } = await supabase
-      .from("programs")
-      .select("id,name")
-      .order("name");
-    if (data) setPrograms(data as ProgramOption[]);
-  }, []);
-
-  useEffect(() => {
-    refreshPrograms();
-  }, [refreshPrograms]);
-
-  useEffect(() => {
-    setSelectedProgram(session?.program_id ?? "");
-  }, [session?.program_id]);
 
   const rem = useLiveRemaining(
     session ?? { running: false, started_at: null, paused_rem: 0 }
@@ -568,111 +580,74 @@ export default function ControlPanel({
     setEditIdx(null);
   }, [agenda, editIdx, editName, editMin, editSec, editNote, editColor, syncAgenda, activeIdx, patchSession]);
 
-  // ── PROGRAMMER (lagre/laste) ───────────────────────────────────
-  const agendaSnapshot = useCallback((): AgendaSnapshotItem[] => {
-    return agenda.map((it) => ({
-      name: it.name,
-      is_section: it.is_section,
-      duration_secs: it.duration_secs,
-      note: it.note,
-      color: it.color,
-    }));
-  }, [agenda]);
-
-  const smartSave = useCallback(async () => {
-    if (session?.program_id) {
-      await supabase
-        .from("programs")
-        .update({ agenda: agendaSnapshot(), schedule_ms: session.program_scheduled_ms || null })
-        .eq("id", session.program_id);
-      refreshPrograms();
+  // ── PROSJEKTER (nytt / bytt / gi nytt navn / slett) ────────────
+  const createProject = useCallback(async () => {
+    const { data, error } = await supabase
+      .from("sessions")
+      .insert({ name: "Nytt prosjekt" })
+      .select("*")
+      .single();
+    if (error || !data) {
+      console.error("Kunne ikke opprette prosjekt:", error);
       return;
     }
-    const name = prompt("Gi programmet et navn:");
-    if (!name) return;
-    const { data, error } = await supabase
-      .from("programs")
-      .insert({ name, agenda: agendaSnapshot(), schedule_ms: session?.program_scheduled_ms || null })
-      .select("id")
-      .single();
-    if (error || !data) return;
-    patchSession({ program_id: data.id });
-    refreshPrograms();
-  }, [session, agendaSnapshot, patchSession, refreshPrograms]);
+    setSession(data as SessionRow);
+    setSessionId(data.id);
+    setAgenda([]);
+    router.replace(`/?s=${data.id}`);
+    setSettingsOpen(false);
+    refreshProjects();
+  }, [router, refreshProjects]);
 
-  const loadSaved = useCallback(
-    async (programId: string) => {
-      if (!programId) return;
-      if (agenda.length > 0 && !confirm("Erstatte nåværende program med det lagrede?")) {
-        setSelectedProgram(session?.program_id ?? "");
+  const switchProject = useCallback(
+    async (id: string) => {
+      if (id === sessionId) {
+        setSettingsOpen(false);
         return;
       }
-      const { data } = await supabase
-        .from("programs")
-        .select("*")
-        .eq("id", programId)
-        .maybeSingle();
+      const { data } = await supabase.from("sessions").select("*").eq("id", id).maybeSingle();
       if (!data) return;
-      const items: LocalItem[] = (data.agenda as AgendaSnapshotItem[]).map((it) => ({
-        key: newKey(),
-        is_section: it.is_section,
-        name: it.name,
-        duration_secs: it.duration_secs ?? 0,
-        note: it.note ?? "",
-        color: it.color ?? COLORS[0],
-      }));
-      await syncAgenda(items);
-      await patchSession({
-        program_id: programId,
-        active_idx: -1,
-        active_label: "",
-        active_note: "",
-        active_section: "",
-        accumulated: 0,
-        program_scheduled_ms: data.schedule_ms || 0,
-        running: false,
-        started_at: null,
-      });
+      setSession(data as SessionRow);
+      setSessionId(id);
+      await fetchAgenda(id);
+      router.replace(`/?s=${id}`);
+      setSettingsOpen(false);
     },
-    [agenda, session, syncAgenda, patchSession]
+    [sessionId, fetchAgenda, router]
   );
 
-  const newProgram = useCallback(() => {
-    if (!confirm("Starte et nytt tomt program?")) return;
-    syncAgenda([]);
-    patchSession({
-      program_id: null,
-      active_idx: -1,
-      active_label: "",
-      active_note: "",
-      active_section: "",
-      accumulated: 0,
-      program_start_ms: 0,
-      program_scheduled_ms: 0,
-      scheduled_offset_secs: 0,
-      running: false,
-      started_at: null,
-    });
-    setSelectedProgram("");
-  }, [syncAgenda, patchSession]);
+  const renameCurrentProject = useCallback(
+    (name: string) => {
+      const trimmed = name.trim();
+      if (!trimmed || !session || trimmed === session.name) return;
+      patchSession({ name: trimmed });
+      setProjects((prev) => prev.map((p) => (p.id === sessionId ? { ...p, name: trimmed } : p)));
+    },
+    [session, sessionId, patchSession]
+  );
 
-  const deleteSaved = useCallback(async () => {
-    if (!selectedProgram) return;
-    if (!confirm("Slette dette lagrede programmet?")) return;
-    await supabase.from("programs").delete().eq("id", selectedProgram);
-    if (session?.program_id === selectedProgram) patchSession({ program_id: null });
-    setSelectedProgram("");
-    refreshPrograms();
-  }, [selectedProgram, session, patchSession, refreshPrograms]);
-
-  const renameProgram = useCallback(async () => {
-    if (!selectedProgram) return;
-    const current = programs.find((p) => p.id === selectedProgram);
-    const newName = prompt("Nytt navn:", current?.name ?? "");
-    if (!newName) return;
-    await supabase.from("programs").update({ name: newName }).eq("id", selectedProgram);
-    refreshPrograms();
-  }, [selectedProgram, programs, refreshPrograms]);
+  const deleteCurrentProject = useCallback(async () => {
+    if (!sessionId || !session) return;
+    if (!confirm(`Slette prosjektet «${session.name}»? Dette kan ikke angres.`)) return;
+    const { error } = await supabase.from("sessions").delete().eq("id", sessionId);
+    if (error) {
+      console.error("Kunne ikke slette prosjekt:", error);
+      return;
+    }
+    setSettingsOpen(false);
+    const { data: remaining } = await supabase
+      .from("sessions")
+      .select("id,name,updated_at")
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (remaining) {
+      await switchProject(remaining.id);
+    } else {
+      await createProject();
+    }
+    refreshProjects();
+  }, [sessionId, session, switchProject, createProject, refreshProjects]);
 
   // ── MELDING / BAKGRUNN / LOGO ─────────────────────────────────
   const sendMsg = useCallback(() => {
@@ -829,17 +804,19 @@ export default function ControlPanel({
     });
     const a = document.createElement("a");
     a.href = "data:text/csv;charset=utf-8,﻿" + encodeURIComponent(rows.join("\n"));
-    a.download = (programs.find((p) => p.id === selectedProgram)?.name || "program") + ".csv";
+    a.download = (session?.name || "program") + ".csv";
     a.click();
-  }, [agenda, programs, selectedProgram]);
+  }, [agenda, session]);
 
   // ── LENKER ────────────────────────────────────────────────────
   const displayUrl = sessionId && origin ? `${origin}/display/${sessionId}` : "";
   const remoteUrl = sessionId && origin ? `${origin}/remote/${sessionId}` : "";
 
-  const copyLink = useCallback((url: string) => {
+  const copyLink = useCallback((which: "display" | "remote", url: string) => {
     if (!url) return;
     navigator.clipboard?.writeText(url).catch(() => {});
+    setCopiedLink(which);
+    window.setTimeout(() => setCopiedLink((cur) => (cur === which ? null : cur)), 1500);
   }, []);
 
   // ── AVLEDET STATUS (forsinkelse/fremskyndelse) ─────────────────
@@ -955,427 +932,286 @@ export default function ControlPanel({
         </div>
       )}
 
-      {/* TOPBAR */}
-      <div className="flex items-center justify-between mb-4">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/prodpilot-logo.png" alt="ProdPilot" className="h-4 w-auto" />
-      </div>
+      {/* INNSTILLINGER-MODAL */}
+      {settingsOpen && (
+        <ProjectSettingsModal
+          session={session}
+          onClose={() => setSettingsOpen(false)}
+          nameDraft={nameDraft}
+          onNameDraftChange={setNameDraft}
+          onNameBlur={() => renameCurrentProject(nameDraft)}
+          setBg={setBg}
+          logoInputRef={logoInputRef}
+          onLogoChange={handleLogo}
+          onRemoveLogo={removeLogo}
+          schedDate={schedDate}
+          setSchedDate={setSchedDate}
+          schedTime={schedTime}
+          setSchedTime={setSchedTime}
+          autostart={autostart}
+          setAutostart={setAutostart}
+          onSetSchedule={setSchedule}
+          onClearSchedule={clearSchedule}
+          displayUrl={displayUrl}
+          remoteUrl={remoteUrl}
+          copiedLink={copiedLink}
+          onCopy={copyLink}
+          importStatus={importStatus}
+          dragOver={dragOver}
+          setDragOver={setDragOver}
+          fileInputRef={fileInputRef}
+          onFile={parseFile}
+          onDownloadTemplate={downloadTemplate}
+          onExport={exportProgram}
+          onDelete={deleteCurrentProject}
+        />
+      )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-[2fr_1fr] gap-4 items-start">
-        {/* VENSTRE: PROGRAM */}
-        <div className="panel gap-3.5">
-          <div className="ptitle">Program</div>
+      <div className="flex gap-4 items-start">
+        <ProjectSidebar
+          projects={projects}
+          currentId={sessionId}
+          onSelect={switchProject}
+          onCreate={createProject}
+        />
 
-          <div className="flex gap-1.5 items-center">
-            <select
-              className="input flex-1 text-[11px]"
-              value={selectedProgram}
-              onChange={(e) => {
-                setSelectedProgram(e.target.value);
-                loadSaved(e.target.value);
+        <div className="flex-1 min-w-0">
+          {/* TOPBAR */}
+          <div className="flex items-center justify-between mb-3">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/prodpilot-logo.png" alt="ProdPilot" className="h-4 w-auto" />
+          </div>
+
+          {/* PROSJEKTNAVN */}
+          <div className="flex items-center gap-2.5 mb-4">
+            <h1 className="text-2xl font-bold text-white truncate">{session.name}</h1>
+            <button
+              className="btn sm flex-shrink-0"
+              onClick={() => {
+                setNameDraft(session.name);
+                setSettingsOpen(true);
               }}
             >
-              <option value="">— Velg lagret program —</option>
-              {programs.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
-            <button className="btn sm green" onClick={smartSave}>
-              Lagre
-            </button>
-            <button className="btn sm" disabled={!selectedProgram} onClick={renameProgram}>
-              Gi nytt navn
-            </button>
-            <button className="btn sm" onClick={newProgram}>
-              Nytt
-            </button>
-            <button className="btn sm red" onClick={deleteSaved}>
-              Slett
+              ⚙ Innstillinger
             </button>
           </div>
 
-          <div className="rounded-lg border border-[#1e1e1e] bg-[#080808] p-3.5 flex flex-col gap-2.5">
-            <div className="grid grid-cols-[1fr_80px_80px] gap-2 items-stretch">
-              <div className="flex flex-col gap-1.5">
-                <input
-                  className="input"
-                  placeholder="Navn på punkt eller bolk"
-                  value={newName}
-                  onChange={(e) => setNewName(e.target.value)}
-                />
-                <input
-                  className="input"
-                  placeholder="Notat (valgfritt)"
-                  value={newNote}
-                  onChange={(e) => setNewNote(e.target.value)}
-                />
-              </div>
-              <div className="flex flex-col">
-                <input
-                  className="input text-center flex-1"
-                  type="number"
-                  min={0}
-                  placeholder="0"
-                  value={newMin}
-                  onChange={(e) => setNewMin(e.target.value)}
-                />
-                <div className="text-[10px] text-[#555] text-center mt-0.5">min</div>
-              </div>
-              <div className="flex flex-col">
-                <input
-                  className="input text-center flex-1"
-                  type="number"
-                  min={0}
-                  max={59}
-                  placeholder="0"
-                  value={newSec}
-                  onChange={(e) => setNewSec(e.target.value)}
-                />
-                <div className="text-[10px] text-[#555] text-center mt-0.5">sek</div>
-              </div>
-            </div>
+          <div className="grid grid-cols-1 lg:grid-cols-[2fr_1fr] gap-4 items-start">
+            {/* VENSTRE: PROGRAM */}
+            <div className="panel gap-3.5">
+              <div className="ptitle">Program</div>
 
-            <ColorRow value={selColor} onChange={setSelColor} />
-
-            <div className="grid grid-cols-[1fr_auto] gap-2">
-              <button className="btn blue" onClick={addItem}>
-                + Legg til punkt
-              </button>
-              <button className="btn sm" onClick={addSection}>
-                + Bolk
-              </button>
-            </div>
-          </div>
-
-          <div
-            className={`rounded-md border border-dashed ${
-              dragOver ? "border-[#2563eb] text-[#93c5fd]" : "border-[#2a2a2a] text-[#555]"
-            } p-2 text-center text-[11px] cursor-pointer transition-colors`}
-            onClick={() => fileInputRef.current?.click()}
-            onDragOver={(e) => {
-              e.preventDefault();
-              setDragOver(true);
-            }}
-            onDragLeave={() => setDragOver(false)}
-            onDrop={(e) => {
-              e.preventDefault();
-              setDragOver(false);
-              if (e.dataTransfer.files[0]) parseFile(e.dataTransfer.files[0]);
-            }}
-          >
-            {importStatus}
-          </div>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".xlsx,.csv,.xls"
-            className="hidden"
-            onChange={(e) => e.target.files?.[0] && parseFile(e.target.files[0])}
-          />
-          <div className="grid grid-cols-2 gap-1.5">
-            <button className="btn xs" onClick={downloadTemplate}>
-              Last ned importmal
-            </button>
-            <button className="btn xs" onClick={exportProgram}>
-              Eksporter program
-            </button>
-          </div>
-
-          <div className="flex items-center">
-            <span className="text-[10px] text-[#555]">
-              {agenda.filter((a) => !a.is_section).length === 0
-                ? "Ingen punkter"
-                : `${agenda.filter((a) => !a.is_section).length} punkt${
-                    agenda.filter((a) => !a.is_section).length === 1 ? "" : "er"
-                  }`}
-            </span>
-            <button className="btn xs red ml-auto" onClick={clearAll}>
-              Tøm alt
-            </button>
-          </div>
-
-          <div className="flex flex-col gap-0.5 max-h-[560px] overflow-y-auto pr-0.5">
-            {agenda.map((item, i) =>
-              item.is_section ? (
-                <SectionRow key={item.key} item={item} i={i} moveUp={moveUp} moveDown={moveDown} openEdit={openEdit} removeItem={removeItem} timeLabel={fmtClock(scheduledTimes[i])} secLabel={itemSum(agenda, i)} />
-              ) : (
-                <AgendaRow
-                  key={item.key}
-                  item={item}
-                  i={i}
-                  num={agenda.slice(0, i + 1).filter((a) => !a.is_section).length}
-                  isActive={i === activeIdx}
-                  isDone={activeIdx >= 0 && i < activeIdx}
-                  clock={fmtClock(scheduledTimes[i])}
-                  moveUp={moveUp}
-                  moveDown={moveDown}
-                  openEdit={openEdit}
-                  removeItem={removeItem}
-                  loadItem={loadItem}
-                />
-              )
-            )}
-          </div>
-        </div>
-
-        {/* HØYRE: KONTROLLER */}
-        <div className="flex flex-col gap-3.5">
-          {/* Klokke */}
-          <div className="panel py-3.5 px-4 gap-1">
-            <div className="text-[36px] font-bold text-white text-center tracking-wide">
-              {now.toLocaleTimeString("no-NO")}
-            </div>
-            <div className="text-[10px] text-[#333] text-center">
-              {now.toLocaleDateString("no-NO", { weekday: "long", day: "numeric", month: "long" })}
-            </div>
-          </div>
-
-          {/* Status */}
-          <div className="grid grid-cols-2 gap-3.5">
-            <div className="sc">
-              <div className="sc-label">Tid igjen</div>
-              <div
-                className={`sc-val ${
-                  activeIdx < 0 && !session.running && session.total_secs === 0
-                    ? "text-[#333]"
-                    : isOvertime
-                    ? "text-[#fca5a5]"
-                    : absRem <= 60
-                    ? "text-[#fde68a]"
-                    : "text-[#4ade80]"
-                }`}
-              >
-                {activeIdx < 0 && !session.running && session.total_secs === 0 ? "--:--" : fmt(absRem)}
-              </div>
-              <div className="sc-sub">{session.active_label || "—"}</div>
-            </div>
-            <div className="sc">
-              <div className="sc-label">Overtid</div>
-              <div className={`sc-val ${isOvertime ? "text-[#fca5a5]" : "text-[#222]"}`}>
-                {isOvertime ? "+" + fmt(Math.abs(rem)) : "—"}
-              </div>
-              <div className="sc-sub">{nextItemData ? "Neste: " + nextItemData.name : "Siste punkt"}</div>
-            </div>
-          </div>
-
-          <div className="flex items-center justify-between bg-[#080808] border border-[#1e1e1e] rounded-lg px-3.5 py-2.5">
-            <span className="status-label">Status</span>
-            <span
-              className={`status-pill ${
-                absStatus < 2
-                  ? "text-[#555] border-[#1e1e1e]"
-                  : liveStatus > 0
-                  ? "text-[#fca5a5] border-[#4a1515] bg-[#1a0808]"
-                  : "text-[#4ade80] border-[#1a4a2a] bg-[#0a1f0a]"
-              }`}
-            >
-              {absStatus < 2 ? "0:00" : (liveStatus > 0 ? "+" : "-") + fmt(absStatus)}
-            </span>
-          </div>
-
-          {/* Transport */}
-          <div className="panel gap-2.5">
-            <div className="ptitle">Panel</div>
-            <div className="grid grid-cols-3 gap-2">
-              <button className="t-btn t-start" onClick={startTimer} disabled={session.running}>
-                ▶ Start
-              </button>
-              <button className="t-btn t-pause" onClick={pauseTimer} disabled={!session.running}>
-                <PauseIcon /> Pause
-              </button>
-              <button className="t-btn t-reset" onClick={resetTimer}>
-                ↺ Reset
-              </button>
-            </div>
-            <div className="grid grid-cols-[1fr_2fr] gap-2">
-              <button className="nav-btn n-prev" onClick={prevItem} disabled={prevIdx < 0}>
-                ← FORRIGE
-              </button>
-              <button className="nav-btn n-next" onClick={nextItem} disabled={nextIdx < 0}>
-                NESTE →
-              </button>
-            </div>
-            {nextItemData && (
-              <div className="next-hint">
-                Neste: {nextItemData.name} ({fmt(nextItemData.duration_secs)})
-              </div>
-            )}
-          </div>
-
-          {/* Melding */}
-          <div className="panel">
-            <div className="ptitle">Melding til visningsskjerm</div>
-            {session.message && (
-              <div className="flex items-start gap-2 bg-[#0d1f0d] border border-[#1a4a1a] rounded-lg px-2.5 py-2 mb-0.5">
-                <div className="flex-1">
-                  <div className="text-[9px] font-bold text-[#1a4a1a] uppercase tracking-wider mb-0.5">
-                    Aktiv melding
+              <div className="rounded-lg border border-[#1e1e1e] bg-[#080808] p-3.5 flex flex-col gap-2.5">
+                <div className="grid grid-cols-[1fr_80px_80px] gap-2 items-stretch">
+                  <div className="flex flex-col gap-1.5">
+                    <input
+                      className="input"
+                      placeholder="Navn på punkt eller bolk"
+                      value={newName}
+                      onChange={(e) => setNewName(e.target.value)}
+                    />
+                    <input
+                      className="input"
+                      placeholder="Notat (valgfritt)"
+                      value={newNote}
+                      onChange={(e) => setNewNote(e.target.value)}
+                    />
                   </div>
-                  <div className="text-xs text-[#4ade80] italic">{session.message}</div>
+                  <div className="flex flex-col">
+                    <input
+                      className="input text-center flex-1"
+                      type="number"
+                      min={0}
+                      placeholder="0"
+                      value={newMin}
+                      onChange={(e) => setNewMin(e.target.value)}
+                    />
+                    <div className="text-[10px] text-[#555] text-center mt-0.5">min</div>
+                  </div>
+                  <div className="flex flex-col">
+                    <input
+                      className="input text-center flex-1"
+                      type="number"
+                      min={0}
+                      max={59}
+                      placeholder="0"
+                      value={newSec}
+                      onChange={(e) => setNewSec(e.target.value)}
+                    />
+                    <div className="text-[10px] text-[#555] text-center mt-0.5">sek</div>
+                  </div>
                 </div>
-                <button
-                  className="text-[#2a4a2a] text-sm px-1"
-                  onClick={clearMsg}
-                  aria-label="Fjern melding"
+
+                <ColorRow value={selColor} onChange={setSelColor} />
+
+                <div className="grid grid-cols-[1fr_auto] gap-2">
+                  <button className="btn blue" onClick={addItem}>
+                    + Legg til punkt
+                  </button>
+                  <button className="btn sm" onClick={addSection}>
+                    + Bolk
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex items-center">
+                <span className="text-[10px] text-[#555]">
+                  {agenda.filter((a) => !a.is_section).length === 0
+                    ? "Ingen punkter"
+                    : `${agenda.filter((a) => !a.is_section).length} punkt${
+                        agenda.filter((a) => !a.is_section).length === 1 ? "" : "er"
+                      }`}
+                </span>
+                <button className="btn xs red ml-auto" onClick={clearAll}>
+                  Tøm alt
+                </button>
+              </div>
+
+              <div className="flex flex-col gap-0.5 max-h-[560px] overflow-y-auto pr-0.5">
+                {agenda.map((item, i) =>
+                  item.is_section ? (
+                    <SectionRow key={item.key} item={item} i={i} moveUp={moveUp} moveDown={moveDown} openEdit={openEdit} removeItem={removeItem} timeLabel={fmtClock(scheduledTimes[i])} secLabel={itemSum(agenda, i)} />
+                  ) : (
+                    <AgendaRow
+                      key={item.key}
+                      item={item}
+                      i={i}
+                      num={agenda.slice(0, i + 1).filter((a) => !a.is_section).length}
+                      isActive={i === activeIdx}
+                      isDone={activeIdx >= 0 && i < activeIdx}
+                      clock={fmtClock(scheduledTimes[i])}
+                      moveUp={moveUp}
+                      moveDown={moveDown}
+                      openEdit={openEdit}
+                      removeItem={removeItem}
+                      loadItem={loadItem}
+                    />
+                  )
+                )}
+              </div>
+            </div>
+
+            {/* HØYRE: KONTROLLER */}
+            <div className="flex flex-col gap-3.5">
+              {/* Klokke */}
+              <div className="panel py-3.5 px-4 gap-1">
+                <div className="text-[36px] font-bold text-white text-center tracking-wide">
+                  {now.toLocaleTimeString("no-NO")}
+                </div>
+                <div className="text-[10px] text-[#333] text-center">
+                  {now.toLocaleDateString("no-NO", { weekday: "long", day: "numeric", month: "long" })}
+                </div>
+              </div>
+
+              {/* Status */}
+              <div className="grid grid-cols-2 gap-3.5">
+                <div className="sc">
+                  <div className="sc-label">Tid igjen</div>
+                  <div
+                    className={`sc-val ${
+                      activeIdx < 0 && !session.running && session.total_secs === 0
+                        ? "text-[#333]"
+                        : isOvertime
+                        ? "text-[#fca5a5]"
+                        : absRem <= 60
+                        ? "text-[#fde68a]"
+                        : "text-[#4ade80]"
+                    }`}
+                  >
+                    {activeIdx < 0 && !session.running && session.total_secs === 0 ? "--:--" : fmt(absRem)}
+                  </div>
+                  <div className="sc-sub">{session.active_label || "—"}</div>
+                </div>
+                <div className="sc">
+                  <div className="sc-label">Overtid</div>
+                  <div className={`sc-val ${isOvertime ? "text-[#fca5a5]" : "text-[#222]"}`}>
+                    {isOvertime ? "+" + fmt(Math.abs(rem)) : "—"}
+                  </div>
+                  <div className="sc-sub">{nextItemData ? "Neste: " + nextItemData.name : "Siste punkt"}</div>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between bg-[#080808] border border-[#1e1e1e] rounded-lg px-3.5 py-2.5">
+                <span className="status-label">Status</span>
+                <span
+                  className={`status-pill ${
+                    absStatus < 2
+                      ? "text-[#555] border-[#1e1e1e]"
+                      : liveStatus > 0
+                      ? "text-[#fca5a5] border-[#4a1515] bg-[#1a0808]"
+                      : "text-[#4ade80] border-[#1a4a2a] bg-[#0a1f0a]"
+                  }`}
                 >
-                  ✕
-                </button>
+                  {absStatus < 2 ? "0:00" : (liveStatus > 0 ? "+" : "-") + fmt(absStatus)}
+                </span>
               </div>
-            )}
-            <textarea
-              className="input"
-              rows={2}
-              placeholder="Melding som vises på visningsskjermen…"
-              value={msgInput}
-              onChange={(e) => setMsgInput(e.target.value)}
-            />
-            <div className="grid grid-cols-2 gap-2 mt-2">
-              <button className="btn blue" onClick={sendMsg}>
-                Send melding
-              </button>
-              <button className="btn" onClick={clearMsg}>
-                Fjern
-              </button>
-            </div>
-          </div>
 
-          {/* Bakgrunn */}
-          <div className="panel">
-            <div className="ptitle">Bakgrunn – visningsskjerm</div>
-            <div className="grid grid-cols-4 gap-2">
-              {(
-                [
-                  ["dark", "Mørk", "#111", "#d8d8d8", "#2a2a2a"],
-                  ["yellow", "Gul", "#5a3000", "#fde68a", "#7a4a00"],
-                  ["red", "Rød", "#5a0a0a", "#fca5a5", "#7a1a1a"],
-                  ["green", "Grønn", "#0a3a16", "#4ade80", "#1a5a26"],
-                ] as const
-              ).map(([key, label, bg, color, border]) => (
-                <button
-                  key={key}
-                  className="btn sm"
-                  style={{
-                    background: bg,
-                    color,
-                    borderColor: border,
-                    outline: session.bg === key ? "2px solid #fff" : "none",
-                    outlineOffset: 2,
-                  }}
-                  onClick={() => setBg(key)}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          </div>
+              {/* Transport */}
+              <div className="panel gap-2.5">
+                <div className="ptitle">Panel</div>
+                <div className="grid grid-cols-3 gap-2">
+                  <button className="t-btn t-start" onClick={startTimer} disabled={session.running}>
+                    ▶ Start
+                  </button>
+                  <button className="t-btn t-pause" onClick={pauseTimer} disabled={!session.running}>
+                    <PauseIcon /> Pause
+                  </button>
+                  <button className="t-btn t-reset" onClick={resetTimer}>
+                    ↺ Reset
+                  </button>
+                </div>
+                <div className="grid grid-cols-[1fr_2fr] gap-2">
+                  <button className="nav-btn n-prev" onClick={prevItem} disabled={prevIdx < 0}>
+                    ← FORRIGE
+                  </button>
+                  <button className="nav-btn n-next" onClick={nextItem} disabled={nextIdx < 0}>
+                    NESTE →
+                  </button>
+                </div>
+                {nextItemData && (
+                  <div className="next-hint">
+                    Neste: {nextItemData.name} ({fmt(nextItemData.duration_secs)})
+                  </div>
+                )}
+              </div>
 
-          {/* Logo */}
-          <div className="panel">
-            <div className="ptitle">Logo på visningsskjerm</div>
-            <button className="btn sm w-full" onClick={() => logoInputRef.current?.click()}>
-              Velg logo (PNG/JPG)
-            </button>
-            <input
-              ref={logoInputRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={(e) => handleLogo(e.target.files?.[0])}
-            />
-            {session.logo_url && (
-              <>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={session.logo_url} alt="Logo" className="max-h-8 max-w-[110px] mt-1" />
-                <button className="btn xs red w-fit" onClick={removeLogo}>
-                  Fjern logo
-                </button>
-              </>
-            )}
-          </div>
-
-          {/* Lenker */}
-          <div className="panel">
-            <div className="ptitle">Lenker</div>
-            <div className="link-box">{displayUrl || "…"}</div>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                className="btn xs"
-                onClick={() => displayUrl && window.open(displayUrl, "_blank")}
-              >
-                Åpne visningsskjerm
-              </button>
-              <button className="btn xs" onClick={() => copyLink(displayUrl)}>
-                Kopier lenke
-              </button>
-            </div>
-            <div className="link-box mt-1">{remoteUrl || "…"}</div>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                className="btn xs"
-                onClick={() => remoteUrl && window.open(remoteUrl, "_blank")}
-              >
-                Åpne fjernkontroll
-              </button>
-              <button className="btn xs" onClick={() => copyLink(remoteUrl)}>
-                Kopier lenke
-              </button>
-            </div>
-          </div>
-
-          {/* Tidsplan */}
-          <div className="panel">
-            <div className="ptitle">Starttidspunkt for program</div>
-            <p className="text-[10px] text-[#444] leading-relaxed">
-              Sett dato og tid for første programpunkt.
-            </p>
-            <div className="grid grid-cols-2 gap-1.5">
-              <div>
-                <input
-                  className="input text-xs"
-                  type="date"
-                  value={schedDate}
-                  onChange={(e) => setSchedDate(e.target.value)}
+              {/* Melding */}
+              <div className="panel">
+                <div className="ptitle">Melding til visningsskjerm</div>
+                {session.message && (
+                  <div className="flex items-start gap-2 bg-[#0d1f0d] border border-[#1a4a1a] rounded-lg px-2.5 py-2 mb-0.5">
+                    <div className="flex-1">
+                      <div className="text-[9px] font-bold text-[#1a4a1a] uppercase tracking-wider mb-0.5">
+                        Aktiv melding
+                      </div>
+                      <div className="text-xs text-[#4ade80] italic">{session.message}</div>
+                    </div>
+                    <button
+                      className="text-[#2a4a2a] text-sm px-1"
+                      onClick={clearMsg}
+                      aria-label="Fjern melding"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                )}
+                <textarea
+                  className="input"
+                  rows={2}
+                  placeholder="Melding som vises på visningsskjermen…"
+                  value={msgInput}
+                  onChange={(e) => setMsgInput(e.target.value)}
                 />
-                <div className="text-[10px] text-[#444] text-center mt-0.5">dato</div>
-              </div>
-              <div>
-                <input
-                  className="input text-xs text-center"
-                  type="time"
-                  value={schedTime}
-                  onChange={(e) => setSchedTime(e.target.value)}
-                />
-                <div className="text-[10px] text-[#444] text-center mt-0.5">klokkeslett</div>
+                <div className="grid grid-cols-2 gap-2 mt-2">
+                  <button className="btn blue" onClick={sendMsg}>
+                    Send melding
+                  </button>
+                  <button className="btn" onClick={clearMsg}>
+                    Fjern
+                  </button>
+                </div>
               </div>
             </div>
-
-            <label className="flex items-center gap-2 cursor-pointer py-1">
-              <input
-                type="checkbox"
-                checked={autostart}
-                onChange={(e) => setAutostart(e.target.checked)}
-                className="accent-[#4ade80]"
-              />
-              <span className="text-xs text-[#888]">Start automatisk på dette tidspunktet</span>
-            </label>
-
-            <div className="flex gap-1.5">
-              <button className="btn green sm flex-1" onClick={setSchedule}>
-                Sett starttid
-              </button>
-              {session.program_scheduled_ms > 0 && (
-                <button className="btn sm flex-1" onClick={clearSchedule}>
-                  Fjern
-                </button>
-              )}
-            </div>
-            {session.program_scheduled_ms > 0 && (
-              <div className="text-[11px] text-[#555]">
-                Planlagt start: {new Date(session.program_scheduled_ms).toLocaleString("no-NO")}
-              </div>
-            )}
           </div>
         </div>
       </div>
