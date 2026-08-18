@@ -34,6 +34,24 @@ function newKey() {
     : Math.random().toString(36).slice(2);
 }
 
+/** Enkelt pause-ikon (to strek) — bevisst IKKE emoji, siden emoji-tegnet ⏸
+ * rendres som et fargerikt bilde på iOS/Android i stedet for et nøytralt ikon. */
+function PauseIcon() {
+  return (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      className="inline-block -mt-0.5"
+      aria-hidden="true"
+    >
+      <rect x="5" y="3" width="5" height="18" rx="1.5" />
+      <rect x="14" y="3" width="5" height="18" rx="1.5" />
+    </svg>
+  );
+}
+
 /** Lager en lesbar feilmelding uansett om vi får en PostgrestError, en vanlig
  * nettverksfeil (fetch-exception), eller noe helt annet. */
 function describeSupabaseError(err: unknown): string {
@@ -250,24 +268,39 @@ export default function ControlPanel({
     [sessionId]
   );
 
+  // Kjeder alle skrivinger til agenda_items etter hverandre (i stedet for å la
+  // dem løpe parallelt). Uten dette kunne rask klikking på ↑/↓/slett føre til at
+  // to delete+insert-kall overlappet — det andre kallets insert kunne da havne
+  // OPPÅ det første sitt (siden begge slettet "alt" før noen rakk å sette inn
+  // igjen), som ga dupliserte rader og en krasjende visning. Feil fanges nå
+  // også opp i stedet for å ende som en uhåndtert løftefeil.
+  const syncChainRef = useRef<Promise<void>>(Promise.resolve());
   const syncAgenda = useCallback(
-    async (list: LocalItem[]) => {
+    (list: LocalItem[]) => {
       setAgenda(list);
-      if (!sessionId) return;
-      await supabase.from("agenda_items").delete().eq("session_id", sessionId);
-      if (list.length > 0) {
-        const rows = list.map((it, i) => ({
-          session_id: sessionId,
-          position: i,
-          is_section: it.is_section,
-          name: it.name,
-          duration_secs: it.duration_secs,
-          note: it.note,
-          color: it.color,
-        }));
-        const { error } = await supabase.from("agenda_items").insert(rows);
-        if (error) console.error("Kunne ikke lagre agenda:", error);
-      }
+      if (!sessionId) return syncChainRef.current;
+      const run = async () => {
+        try {
+          await supabase.from("agenda_items").delete().eq("session_id", sessionId);
+          if (list.length > 0) {
+            const rows = list.map((it, i) => ({
+              session_id: sessionId,
+              position: i,
+              is_section: it.is_section,
+              name: it.name,
+              duration_secs: it.duration_secs,
+              note: it.note,
+              color: it.color,
+            }));
+            const { error } = await supabase.from("agenda_items").insert(rows);
+            if (error) console.error("Kunne ikke lagre agenda:", error);
+          }
+        } catch (err) {
+          console.error("Feil ved lagring av agenda:", err);
+        }
+      };
+      syncChainRef.current = syncChainRef.current.then(run, run);
+      return syncChainRef.current;
     },
     [sessionId]
   );
@@ -340,9 +373,10 @@ export default function ControlPanel({
         }
       }
 
-      patchSession({
+      const offset = getScheduledOffset(i);
+      const patch: Partial<SessionRow> = {
         accumulated,
-        scheduled_offset_secs: getScheduledOffset(i),
+        scheduled_offset_secs: offset,
         active_idx: i,
         active_label: item.name,
         active_note: item.note,
@@ -352,7 +386,15 @@ export default function ControlPanel({
         paused_rem: item.duration_secs,
         started_at: new Date().toISOString(),
         running: true,
-      });
+      };
+      // Forankre programmets klokke-starttidspunkt idet FØRSTE punkt lastes,
+      // slik at status/forsinkelse alltid regnes ut fra faktisk klokkeslett
+      // (base + offset) i stedet for akkumulert regnestykke. Uten dette blir
+      // "hopp frem/tilbake" upresist siden det ikke fantes noe klokke-anker.
+      if (!session.program_start_ms && !session.program_scheduled_ms) {
+        patch.program_start_ms = Date.now() - offset * 1000;
+      }
+      patchSession(patch);
     },
     [agenda, session, patchSession, getScheduledOffset]
   );
@@ -915,10 +957,8 @@ export default function ControlPanel({
 
       {/* TOPBAR */}
       <div className="flex items-center justify-between mb-4">
-        <span className="text-sm font-bold text-white">ProdPilot</span>
-        <span className="text-[10px] font-semibold rounded-full border border-[#1a4a2a] bg-[#0d2e1a] text-[#4ade80] px-2.5 py-0.5">
-          ● Supabase tilkoblet
-        </span>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/prodpilot-logo.png" alt="ProdPilot" className="h-4 w-auto" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-[2fr_1fr] gap-4 items-start">
@@ -1143,7 +1183,7 @@ export default function ControlPanel({
                 ▶ Start
               </button>
               <button className="t-btn t-pause" onClick={pauseTimer} disabled={!session.running}>
-                ⏸ Pause
+                <PauseIcon /> Pause
               </button>
               <button className="t-btn t-reset" onClick={resetTimer}>
                 ↺ Reset

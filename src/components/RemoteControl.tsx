@@ -7,6 +7,22 @@ import { fmt, calcRemaining } from "@/lib/timer";
 import { useLiveRemaining } from "@/hooks/useLiveRemaining";
 import SupabaseSetupNotice from "@/components/SupabaseSetupNotice";
 
+function PauseIcon() {
+  return (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      className="inline-block"
+      aria-hidden="true"
+    >
+      <rect x="5" y="3" width="5" height="18" rx="1.5" />
+      <rect x="14" y="3" width="5" height="18" rx="1.5" />
+    </svg>
+  );
+}
+
 export default function RemoteControl({ sessionId }: { sessionId: string }) {
   const [session, setSession] = useState<SessionRow | null>(null);
   const [agenda, setAgenda] = useState<AgendaItemRow[]>([]);
@@ -101,7 +117,7 @@ export default function RemoteControl({ sessionId }: { sessionId: string }) {
           break;
         }
       }
-      patchSession({
+      const patch: Partial<SessionRow> = {
         accumulated,
         scheduled_offset_secs: offset,
         active_idx: i,
@@ -113,7 +129,12 @@ export default function RemoteControl({ sessionId }: { sessionId: string }) {
         paused_rem: item.duration_secs,
         started_at: new Date().toISOString(),
         running: true,
-      });
+      };
+      // Samme klokke-forankring som i kontrollpanelet — se kommentar der.
+      if (!session.program_start_ms && !session.program_scheduled_ms) {
+        patch.program_start_ms = Date.now() - offset * 1000;
+      }
+      patchSession(patch);
     },
     [agenda, session, patchSession]
   );
@@ -186,9 +207,10 @@ export default function RemoteControl({ sessionId }: { sessionId: string }) {
   const absStatus = Math.abs(liveStatus);
 
   return (
-    <div className="min-h-screen bg-[#080808] text-[#d8d8d8] p-4 pb-10 flex flex-col gap-4 max-w-md mx-auto">
+    <div className="min-h-screen w-full overflow-x-hidden bg-[#080808] text-[#d8d8d8] p-4 pb-10 flex flex-col gap-4 max-w-md mx-auto">
       <div className="flex items-center justify-between pt-1">
-        <span className="text-sm font-bold text-white">ProdPilot</span>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/prodpilot-logo.png" alt="ProdPilot" className="h-3.5 w-auto" />
         <span className="text-[10px] font-semibold rounded-full border border-[#1a3a6a] bg-[#080f20] text-[#93c5fd] px-2.5 py-0.5">
           Fjernkontroll
         </span>
@@ -229,11 +251,11 @@ export default function RemoteControl({ sessionId }: { sessionId: string }) {
           ▶ Start
         </button>
         <button
-          className="rounded-xl border border-[#1e3a70] bg-[#0d1f40] text-[#93c5fd] font-semibold py-4 text-sm disabled:opacity-25"
+          className="rounded-xl border border-[#1e3a70] bg-[#0d1f40] text-[#93c5fd] font-semibold py-4 text-sm disabled:opacity-25 flex items-center justify-center gap-1.5"
           onClick={pauseTimer}
           disabled={!session.running}
         >
-          ⏸ Pause
+          <PauseIcon /> Pause
         </button>
         <button
           className="rounded-xl border border-[#2563eb] bg-[#0d1f40] text-[#93c5fd] font-semibold py-4 text-sm disabled:opacity-25"
