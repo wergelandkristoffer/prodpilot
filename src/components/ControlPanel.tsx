@@ -1025,6 +1025,18 @@ export default function ControlPanel({
   const absRem = Math.max(0, rem);
   const absStatus = Math.abs(liveStatus);
 
+  // Forventet sluttidspunkt: den opprinnelige planen (klokke-anker + summen
+  // av alle punktenes lengde) og — når vi ligger foran/bak — et justert
+  // anslag basert på nøyaktig samme avvik som Status-pillen viser akkurat nå.
+  const programAnchorMs = session.program_scheduled_ms || session.program_start_ms;
+  const totalProgramSecs = agenda.reduce(
+    (sum, it) => sum + (it.is_section ? 0 : it.duration_secs),
+    0
+  );
+  const plannedEndMs =
+    programAnchorMs && totalProgramSecs > 0 ? programAnchorMs + totalProgramSecs * 1000 : null;
+  const estimatedEndMs = plannedEndMs != null ? plannedEndMs + liveStatus * 1000 : null;
+
   // Punktlisten er en funksjon (ikke en fast variabel) slik at den kan
   // gjenbrukes med ulik makshøyde i vanlig visning vs. "Rediger program".
   const renderAgendaList = (maxHeightClass: string) => (
@@ -1423,8 +1435,16 @@ export default function ControlPanel({
       <div>
         {/* TOPBAR */}
         <div className="flex items-center justify-between mb-3">
-          <button className="btn sm" onClick={() => setProjectMenuOpen(true)}>
-            ☰ Prosjekter
+          <button
+            className="flex items-center gap-1.5 pl-2.5 pr-3.5 py-1.5 rounded-full border border-[#2a2a2a] bg-transparent text-[#999] text-xs font-semibold tracking-wide hover:bg-[#141414] hover:text-white hover:border-[#3a3a3a] transition-colors"
+            onClick={() => setProjectMenuOpen(true)}
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+              <line x1="4" y1="7" x2="20" y2="7" />
+              <line x1="4" y1="12" x2="20" y2="12" />
+              <line x1="4" y1="17" x2="20" y2="17" />
+            </svg>
+            Prosjekter
           </button>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/prodpilot-logo.png" alt="ProdPilot" className="h-6 w-auto" />
@@ -1573,7 +1593,7 @@ export default function ControlPanel({
                       activeIdx < 0 && !session.running && session.total_secs === 0
                         ? "text-[#333]"
                         : isOvertime
-                        ? "text-[#fca5a5]"
+                        ? "text-[#f87171]"
                         : absRem <= 60
                         ? "text-[#fde68a]"
                         : "text-[#4ade80]"
@@ -1585,26 +1605,44 @@ export default function ControlPanel({
                 </div>
                 <div className="sc">
                   <div className="sc-label">Overtid</div>
-                  <div className={`sc-val ${isOvertime ? "text-[#fca5a5]" : "text-[#222]"}`}>
+                  <div className={`sc-val ${isOvertime ? "text-[#f87171]" : "text-[#222]"}`}>
                     {isOvertime ? "+" + fmt(Math.abs(rem)) : "—"}
                   </div>
                   <div className="sc-sub">{nextItemData ? "Neste: " + nextItemData.name : "Siste punkt"}</div>
                 </div>
               </div>
 
-              <div className="flex items-center justify-between bg-[#080808] border border-[#1e1e1e] rounded-lg px-3.5 py-2.5">
-                <span className="status-label">Status</span>
-                <span
-                  className={`status-pill ${
-                    absStatus < 2
-                      ? "text-[#555] border-[#1e1e1e]"
-                      : liveStatus > 0
-                      ? "text-[#fca5a5] border-[#4a1515] bg-[#1a0808]"
-                      : "text-[#4ade80] border-[#1a4a2a] bg-[#0a1f0a]"
-                  }`}
-                >
-                  {absStatus < 2 ? "0:00" : (liveStatus > 0 ? "+" : "-") + fmt(absStatus)}
-                </span>
+              <div className="flex flex-col gap-1.5 bg-[#080808] border border-[#1e1e1e] rounded-lg px-3.5 py-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="status-label">Status</span>
+                  <span
+                    className={`status-pill ${
+                      absStatus < 2
+                        ? "text-[#555] border-[#1e1e1e]"
+                        : liveStatus > 0
+                        ? "text-[#f87171] border-[#4a1515] bg-[#1a0808]"
+                        : "text-[#4ade80] border-[#1a4a2a] bg-[#0a1f0a]"
+                    }`}
+                  >
+                    {absStatus < 2 ? "0:00" : (liveStatus > 0 ? "+" : "-") + fmt(absStatus)}
+                  </span>
+                </div>
+                {plannedEndMs != null && (
+                  <div className="flex items-center justify-between text-[10px] text-[#555]">
+                    <span>Planlagt slutt: {fmtClock(plannedEndMs)}</span>
+                    <span
+                      className={
+                        absStatus < 2
+                          ? "text-[#555]"
+                          : liveStatus > 0
+                          ? "text-[#f87171]"
+                          : "text-[#4ade80]"
+                      }
+                    >
+                      Ser ut til å bli ferdig: {fmtClock(estimatedEndMs)}
+                    </span>
+                  </div>
+                )}
               </div>
 
               {/* Transport */}

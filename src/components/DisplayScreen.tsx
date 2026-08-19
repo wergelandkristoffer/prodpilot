@@ -106,9 +106,10 @@ export default function DisplayScreen({ sessionId }: { sessionId: string }) {
   }, [agenda, session]);
 
   const upcoming = useMemo(() => {
-    const out: { item: AgendaItemRow; clock: string }[] = [];
+    const out: { item: AgendaItemRow; clock: string; plannedMs: number | null }[] = [];
     for (let i = activeIdx + 1; i < agenda.length && out.length < 3; i++) {
-      if (!agenda[i].is_section) out.push({ item: agenda[i], clock: fmtClock(scheduledTimes[i]) });
+      if (!agenda[i].is_section)
+        out.push({ item: agenda[i], clock: fmtClock(scheduledTimes[i]), plannedMs: scheduledTimes[i] });
     }
     return out;
   }, [agenda, activeIdx, scheduledTimes]);
@@ -146,7 +147,10 @@ export default function DisplayScreen({ sessionId }: { sessionId: string }) {
   }
 
   const isOvertime = rem < 0;
-  const absRem = Math.max(0, rem);
+  // Math.abs (ikke Math.max(0, rem)) — sistnevnte klemte tallet fast på 0
+  // gjennom HELE overtiden, så det så ut som klokka hadde stoppet i stedet
+  // for å telle oppover.
+  const absRem = Math.abs(rem);
   const hasActive = activeIdx >= 0 && !agenda[activeIdx]?.is_section;
   const absStatus = Math.abs(liveStatus);
 
@@ -175,9 +179,12 @@ export default function DisplayScreen({ sessionId }: { sessionId: string }) {
 
       <div
         className={`font-bold tabular-nums leading-none text-[18vw] md:text-[220px] ${
-          isOvertime ? "text-[#fca5a5]" : absRem <= 60 && hasActive ? "text-[#fde68a]" : "text-white"
+          isOvertime ? "text-[#f87171]" : absRem <= 60 && hasActive ? "text-[#fde68a]" : "text-white"
         }`}
-        style={{ color: hasActive ? session.active_color : undefined }}
+        // `active_color` skal KUN style tallet mens vi er innenfor tiden —
+        // den inline-fargen overstyrte tidligere alltid overtid-rødt, siden
+        // en active_color alltid er satt mens punktet fortsatt er aktivt.
+        style={{ color: hasActive && !isOvertime ? session.active_color : undefined }}
       >
         {hasActive ? (isOvertime ? "+" : "") + fmt(absRem) : "--:--"}
       </div>
@@ -197,22 +204,47 @@ export default function DisplayScreen({ sessionId }: { sessionId: string }) {
       )}
 
       {upcoming.length > 0 && (
-        <div className="flex flex-wrap justify-center gap-4 md:gap-8 mt-4">
-          {upcoming.map(({ item, clock }, i) => (
-            <div key={item.id} className="flex flex-col items-center gap-1 opacity-70">
-              <span className="text-[10px] uppercase tracking-widest text-white/40">
-                {i === 0 ? "Neste" : `Nr. ${i + 1}`}
-              </span>
-              <span
-                className="w-2 h-2 rounded-full"
-                style={{ background: item.color }}
-              />
-              <span className="text-base md:text-xl font-medium text-center max-w-[220px] truncate">
-                {item.name}
-              </span>
-              {clock && <span className="text-xs md:text-sm text-white/40 font-mono">{clock}</span>}
-            </div>
-          ))}
+        <div className="flex flex-col items-center gap-3 mt-4">
+          <span className="text-[10px] uppercase tracking-widest text-white/40">
+            Neste på programmet
+          </span>
+          <div className="flex flex-wrap justify-center gap-4 md:gap-8">
+            {upcoming.map(({ item, clock, plannedMs }, i) => {
+              // "Ny tid" justerer det opprinnelig planlagte tidspunktet med
+              // nøyaktig samme avvik som Status-pillen viser akkurat nå —
+              // altså hvor punktet faktisk ser ut til å starte hvis avviket
+              // holder seg. "Planlagt tid" er alltid den opprinnelige planen,
+              // uendret.
+              const driftSecs = hasActive ? liveStatus : 0;
+              const newMs = plannedMs != null ? plannedMs + driftSecs * 1000 : null;
+              const newClock = newMs != null ? fmtClock(newMs) : "";
+              const showNewClock = !!clock && !!newClock && newClock !== clock;
+              return (
+                <div key={item.id} className="flex flex-col items-center gap-1 opacity-70">
+                  <span className="text-[10px] text-white/40 font-mono">{i + 1}</span>
+                  <span
+                    className="w-2 h-2 rounded-full"
+                    style={{ background: item.color }}
+                  />
+                  <span className="text-base md:text-xl font-medium text-center max-w-[220px] truncate">
+                    {item.name}
+                  </span>
+                  {clock && (
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                      <span className="text-xs md:text-sm text-white/40 font-mono">
+                        Planlagt tid {clock}
+                      </span>
+                      {showNewClock && (
+                        <span className="text-[10px] md:text-xs font-mono font-semibold text-[#4ade80] bg-[#0a1f0a] border border-[#1a4a2a] rounded px-1.5 py-0.5">
+                          Ny tid {newClock}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
 
