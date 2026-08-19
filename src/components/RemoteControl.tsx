@@ -35,7 +35,11 @@ export default function RemoteControl({ sessionId }: { sessionId: string }) {
       .select("*")
       .eq("session_id", sessionId)
       .order("position");
-    if (data) setAgenda(data as AgendaItemRow[]);
+    if (data) {
+      setAgenda(
+        (data as AgendaItemRow[]).filter((it) => !!it && !!it.id)
+      );
+    }
   }, [sessionId]);
 
   useEffect(() => {
@@ -82,7 +86,8 @@ export default function RemoteControl({ sessionId }: { sessionId: string }) {
   const rem = useLiveRemaining(
     session ?? { running: false, started_at: null, paused_rem: 0 }
   );
-  const activeIdx = session?.active_idx ?? -1;
+  const rawActiveIdx = session?.active_idx ?? -1;
+  const activeIdx = rawActiveIdx >= 0 && rawActiveIdx < agenda.length ? rawActiveIdx : -1;
 
   const patchSession = useCallback(
     async (patch: Partial<SessionRow>) => {

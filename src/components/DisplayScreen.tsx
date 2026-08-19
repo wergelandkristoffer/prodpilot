@@ -39,7 +39,9 @@ export default function DisplayScreen({ sessionId }: { sessionId: string }) {
         .select("*")
         .eq("session_id", sessionId)
         .order("position");
-      if (!cancelled && items) setAgenda(items as AgendaItemRow[]);
+      if (!cancelled && items) {
+        setAgenda((items as AgendaItemRow[]).filter((it) => !!it && !!it.id));
+      }
     }
     load();
 
@@ -61,7 +63,7 @@ export default function DisplayScreen({ sessionId }: { sessionId: string }) {
             .select("*")
             .eq("session_id", sessionId)
             .order("position");
-          if (data) setAgenda(data as AgendaItemRow[]);
+          if (data) setAgenda((data as AgendaItemRow[]).filter((it) => !!it && !!it.id));
         }
       )
       .subscribe();
@@ -76,7 +78,8 @@ export default function DisplayScreen({ sessionId }: { sessionId: string }) {
     session ?? { running: false, started_at: null, paused_rem: 0 }
   );
 
-  const activeIdx = session?.active_idx ?? -1;
+  const rawActiveIdx = session?.active_idx ?? -1;
+  const activeIdx = rawActiveIdx >= 0 && rawActiveIdx < agenda.length ? rawActiveIdx : -1;
 
   const scheduledTimes = useMemo(() => {
     if (!session) return agenda.map(() => null as number | null);

@@ -135,15 +135,20 @@ export default function ControlPanel({
       .eq("session_id", sid)
       .order("position");
     if (data) {
+      // Filtrerer bort ev. korrupte/tomme rader (f.eks. fra en gammel,
+      // avbrutt skriving) i stedet for å la dem krasje resten av siden —
+      // en rad uten id/navn er ikke brukbar uansett.
       setAgenda(
-        data.map((it) => ({
-          key: it.id,
-          is_section: it.is_section,
-          name: it.name,
-          duration_secs: it.duration_secs,
-          note: it.note ?? "",
-          color: it.color,
-        }))
+        data
+          .filter((it): it is NonNullable<typeof it> => !!it && !!it.id)
+          .map((it) => ({
+            key: it.id,
+            is_section: it.is_section === true,
+            name: it.name ?? "",
+            duration_secs: it.duration_secs ?? 0,
+            note: it.note ?? "",
+            color: it.color ?? COLORS[0],
+          }))
       );
     }
   }, []);
@@ -393,7 +398,13 @@ export default function ControlPanel({
     });
   }, [agenda, session]);
 
-  const activeIdx = session?.active_idx ?? -1;
+  // Klemmer active_idx til et gyldig array-indeks. Uten dette kan en
+  // sesjon som (av en eller annen grunn — f.eks. punkter slettet fra en
+  // annen fane/enhet mens denne var åpen) peker på en indeks utenfor
+  // agenda-arrayet, føre til at siden krasjer permanent ved hver
+  // sideinnlasting siden verdien ligger lagret i databasen.
+  const rawActiveIdx = session?.active_idx ?? -1;
+  const activeIdx = rawActiveIdx >= 0 && rawActiveIdx < agenda.length ? rawActiveIdx : -1;
   const nextIdx = findNextIdx(activeIdx);
   const prevIdx = findPrevIdx(activeIdx);
   const nextItemData = nextIdx >= 0 ? agenda[nextIdx] : null;
@@ -597,7 +608,14 @@ export default function ControlPanel({
   );
 
   const saveEdit = useCallback(() => {
-    if (editIdx === null) return;
+    // editIdx er React-state og kan bli "foreldet" hvis agenda endres (f.eks.
+    // et punkt slettet fra en annen fane) mens redigerings-vinduet er åpent.
+    // Uten denne sjekken kunne next[editIdx] skrive utenfor arrayet og lage
+    // et "hull" (udefinert element) som senere krasjer visningen.
+    if (editIdx === null || editIdx < 0 || editIdx >= agenda.length) {
+      setEditIdx(null);
+      return;
+    }
     const next = [...agenda];
     const item = { ...next[editIdx] };
     const name = editName.trim();
