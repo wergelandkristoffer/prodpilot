@@ -1115,20 +1115,22 @@ export default function ControlPanel({
               <div className="ptitle">Program</div>
 
               <div className="rounded-lg border border-[#1e1e1e] bg-[#080808] p-3 flex flex-col gap-2">
-                <div className="flex gap-1.5">
+                {/* CSS Grid i stedet for flex: bredden på hver kolonne
+                    styres av grid-malen (1fr / 52px / 52px), helt uavhengig
+                    av .input sin egen width:100%-regel — samme mønster som
+                    minutt/sekund-boksene i redigeringsvinduet, som aldri har
+                    hatt dette problemet. Dette kan ikke lenger tape mot
+                    .input i CSS-kaskaden slik den forrige flex-varianten
+                    gjorde. */}
+                <div className="grid grid-cols-[1fr_52px_52px] gap-1.5 items-start">
                   <input
-                    className="input flex-1 min-w-0"
+                    className="input"
                     placeholder="Navn på punkt"
                     value={newName}
                     onChange={(e) => setNewName(e.target.value)}
                     onKeyDown={(e) => e.key === "Enter" && addItem()}
                   />
-                  {/* .input setter width:100% globalt, som ellers vinner over
-                      Tailwinds w-12 og sprenger boksen full bredde inne i en
-                      flex-rad. Løses ved å legge width-begrensningen på en
-                      ytre wrapper i stedet for å konkurrere med .input sin
-                      egen bredde-regel. */}
-                  <div className="w-12 flex-none">
+                  <div>
                     <input
                       className="input text-center"
                       type="number"
@@ -1138,8 +1140,9 @@ export default function ControlPanel({
                       value={newMin}
                       onChange={(e) => setNewMin(e.target.value)}
                     />
+                    <div className="text-[9px] text-[#555] text-center mt-0.5">min</div>
                   </div>
-                  <div className="w-12 flex-none">
+                  <div>
                     <input
                       className="input text-center"
                       type="number"
@@ -1150,6 +1153,7 @@ export default function ControlPanel({
                       value={newSec}
                       onChange={(e) => setNewSec(e.target.value)}
                     />
+                    <div className="text-[9px] text-[#555] text-center mt-0.5">sek</div>
                   </div>
                 </div>
 
