@@ -112,6 +112,9 @@ export default function ControlPanel({
     "Importer fra Excel / CSV — dra hit eller klikk"
   );
   const [dragOver, setDragOver] = useState(false);
+  const [addSectionOpen, setAddSectionOpen] = useState(false);
+  const [newSectionName, setNewSectionName] = useState("");
+  const [newSectionColor, setNewSectionColor] = useState(COLORS[0]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const logoInputRef = useRef<HTMLInputElement>(null);
@@ -157,6 +160,39 @@ export default function ControlPanel({
   useEffect(() => {
     refreshProjects();
   }, [refreshProjects]);
+
+  // Rydder bort tomme test-prosjekter (standardnavn, ingen agenda-punkter) som
+  // gjerne har hopet seg opp under testing. Rører ALDRI det prosjektet som er
+  // åpent akkurat nå. Kjøres kun én gang per sideinnlasting.
+  const cleanupRanRef = useRef(false);
+  useEffect(() => {
+    if (!ready || cleanupRanRef.current) return;
+    cleanupRanRef.current = true;
+    (async () => {
+      try {
+        const { data: candidates } = await supabase
+          .from("sessions")
+          .select("id,name")
+          .in("name", ["Nytt program", "Nytt prosjekt"]);
+        if (!candidates || candidates.length === 0) return;
+        const staleIds: string[] = [];
+        for (const c of candidates) {
+          if (c.id === sessionId) continue;
+          const { count } = await supabase
+            .from("agenda_items")
+            .select("id", { count: "exact", head: true })
+            .eq("session_id", c.id);
+          if (!count) staleIds.push(c.id);
+        }
+        if (staleIds.length > 0) {
+          await supabase.from("sessions").delete().in("id", staleIds);
+          refreshProjects();
+        }
+      } catch (err) {
+        console.error("Feil ved opprydding av tomme prosjekter:", err);
+      }
+    })();
+  }, [ready, sessionId, refreshProjects]);
 
   useEffect(() => {
     let cancelled = false;
@@ -491,13 +527,14 @@ export default function ControlPanel({
   }, [agenda, newName, newMin, newSec, newNote, selColor, syncAgenda]);
 
   const addSection = useCallback(() => {
-    const name = newName.trim() || "Ny bolk";
+    const name = newSectionName.trim() || "Ny bolk";
     syncAgenda([
       ...agenda,
-      { key: newKey(), is_section: true, name, duration_secs: 0, note: "", color: selColor },
+      { key: newKey(), is_section: true, name, duration_secs: 0, note: "", color: newSectionColor },
     ]);
-    setNewName("");
-  }, [agenda, newName, selColor, syncAgenda]);
+    setNewSectionName("");
+    setAddSectionOpen(false);
+  }, [agenda, newSectionName, newSectionColor, syncAgenda]);
 
   const removeItem = useCallback(
     (i: number) => {
@@ -596,8 +633,11 @@ export default function ControlPanel({
     setSessionId(data.id);
     setAgenda([]);
     router.replace(`/?s=${data.id}`);
-    setSettingsOpen(false);
     setProjectMenuOpen(false);
+    // Hopp rett inn i innstillinger for det nye prosjektet, så man kan gi det
+    // navn og sette opp resten med en gang.
+    setNameDraft(data.name);
+    setSettingsOpen(true);
     refreshProjects();
   }, [router, refreshProjects]);
 
@@ -608,14 +648,24 @@ export default function ControlPanel({
         setProjectMenuOpen(false);
         return;
       }
-      const { data } = await supabase.from("sessions").select("*").eq("id", id).maybeSingle();
-      if (!data) return;
-      setSession(data as SessionRow);
-      setSessionId(id);
-      await fetchAgenda(id);
-      router.replace(`/?s=${id}`);
-      setSettingsOpen(false);
-      setProjectMenuOpen(false);
+      try {
+        const { data, error } = await supabase.from("sessions").select("*").eq("id", id).maybeSingle();
+        if (error) throw error;
+        if (!data) {
+          // Prosjektet finnes ikke lenger (f.eks. slettet i en annen fane) —
+          // rydd det bort fra listen i stedet for å krasje.
+          setProjects((prev) => prev.filter((p) => p.id !== id));
+          return;
+        }
+        setSession(data as SessionRow);
+        setSessionId(id);
+        await fetchAgenda(id);
+        router.replace(`/?s=${id}`);
+        setSettingsOpen(false);
+        setProjectMenuOpen(false);
+      } catch (err) {
+        console.error("Kunne ikke bytte prosjekt:", err);
+      }
     },
     [sessionId, fetchAgenda, router]
   );
@@ -824,18 +874,23 @@ export default function ControlPanel({
   }, []);
 
   // ── AVLEDET STATUS (forsinkelse/fremskyndelse) ─────────────────
+  // Kun når brukeren eksplisitt har satt et starttidspunkt (i Innstillinger)
+  // regner vi ut avvik mot en fast, absolutt klokke-plan. Uten et satt
+  // starttidspunkt er "programstart" bare et internt tidsstempel fra første
+  // gang noen trykket play — å måle avvik mot DET fører til at status hopper
+  // rart rundt bare fordi man navigerer/tester frem og tilbake mellom punkter
+  // (klokka går jo videre selv om du ikke faktisk kjører et punkt). Da viser
+  // vi i stedet bare om det AKTIVE punktet akkurat nå går over sin egen tid.
   const liveStatus = useMemo(() => {
     if (!session) return 0;
     if (activeIdx < 0 || agenda[activeIdx]?.is_section) return 0;
-    const base = session.program_scheduled_ms || session.program_start_ms;
-    if (base > 0 && session.scheduled_offset_secs >= 0) {
-      const scheduledItemStartMs = base + session.scheduled_offset_secs * 1000;
+    if (session.program_scheduled_ms > 0) {
+      const scheduledItemStartMs = session.program_scheduled_ms + session.scheduled_offset_secs * 1000;
       const secondsPast = (Date.now() - scheduledItemStartMs) / 1000;
       const currentElapsed = session.total_secs - Math.max(0, rem);
       return secondsPast - currentElapsed;
     }
-    const curOT = rem < 0 ? Math.abs(rem) : 0;
-    return session.accumulated + curOT;
+    return rem < 0 ? Math.abs(rem) : 0;
   }, [session, activeIdx, agenda, rem]);
 
   const scheduledTimes = getScheduledTimes();
@@ -936,6 +991,38 @@ export default function ControlPanel({
         </div>
       )}
 
+      {/* NY BOLK-MODAL */}
+      {addSectionOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+          onClick={() => setAddSectionOpen(false)}
+        >
+          <div
+            className="w-full max-w-sm rounded-xl border border-[#2a2a2a] bg-[#111] p-5 flex flex-col gap-3"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-sm font-semibold text-white">Ny bolk</h3>
+            <input
+              className="input"
+              placeholder="Navn på bolk"
+              autoFocus
+              value={newSectionName}
+              onChange={(e) => setNewSectionName(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && addSection()}
+            />
+            <ColorRow value={newSectionColor} onChange={setNewSectionColor} />
+            <div className="flex gap-2 pt-1">
+              <button className="btn green flex-1" onClick={addSection}>
+                Legg til bolk
+              </button>
+              <button className="btn flex-1" onClick={() => setAddSectionOpen(false)}>
+                Avbryt
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* INNSTILLINGER-MODAL */}
       {settingsOpen && (
         <ProjectSettingsModal
@@ -983,11 +1070,11 @@ export default function ControlPanel({
       <div>
         {/* TOPBAR */}
         <div className="flex items-center justify-between mb-3">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/prodpilot-logo.png" alt="ProdPilot" className="h-4 w-auto" />
           <button className="btn sm" onClick={() => setProjectMenuOpen(true)}>
             ☰ Prosjekter
           </button>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/prodpilot-logo.png" alt="ProdPilot" className="h-6 w-auto" />
         </div>
 
         {/* PROSJEKTNAVN */}
@@ -1009,54 +1096,50 @@ export default function ControlPanel({
             <div className="panel gap-3.5">
               <div className="ptitle">Program</div>
 
-              <div className="rounded-lg border border-[#1e1e1e] bg-[#080808] p-3.5 flex flex-col gap-2.5">
-                <div className="grid grid-cols-[1fr_80px_80px] gap-2 items-stretch">
-                  <div className="flex flex-col gap-1.5">
-                    <input
-                      className="input"
-                      placeholder="Navn på punkt eller bolk"
-                      value={newName}
-                      onChange={(e) => setNewName(e.target.value)}
-                    />
-                    <input
-                      className="input"
-                      placeholder="Notat (valgfritt)"
-                      value={newNote}
-                      onChange={(e) => setNewNote(e.target.value)}
-                    />
-                  </div>
-                  <div className="flex flex-col">
-                    <input
-                      className="input text-center flex-1"
-                      type="number"
-                      min={0}
-                      placeholder="0"
-                      value={newMin}
-                      onChange={(e) => setNewMin(e.target.value)}
-                    />
-                    <div className="text-[10px] text-[#555] text-center mt-0.5">min</div>
-                  </div>
-                  <div className="flex flex-col">
-                    <input
-                      className="input text-center flex-1"
-                      type="number"
-                      min={0}
-                      max={59}
-                      placeholder="0"
-                      value={newSec}
-                      onChange={(e) => setNewSec(e.target.value)}
-                    />
-                    <div className="text-[10px] text-[#555] text-center mt-0.5">sek</div>
-                  </div>
+              <div className="rounded-lg border border-[#1e1e1e] bg-[#080808] p-3 flex flex-col gap-2">
+                <div className="flex gap-1.5">
+                  <input
+                    className="input flex-1"
+                    placeholder="Navn på punkt"
+                    value={newName}
+                    onChange={(e) => setNewName(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && addItem()}
+                  />
+                  <input
+                    className="input w-12 text-center flex-none"
+                    type="number"
+                    min={0}
+                    placeholder="0"
+                    title="Minutter"
+                    value={newMin}
+                    onChange={(e) => setNewMin(e.target.value)}
+                  />
+                  <input
+                    className="input w-12 text-center flex-none"
+                    type="number"
+                    min={0}
+                    max={59}
+                    placeholder="0"
+                    title="Sekunder"
+                    value={newSec}
+                    onChange={(e) => setNewSec(e.target.value)}
+                  />
                 </div>
+
+                <input
+                  className="input"
+                  placeholder="Notat (valgfritt)"
+                  value={newNote}
+                  onChange={(e) => setNewNote(e.target.value)}
+                />
 
                 <ColorRow value={selColor} onChange={setSelColor} />
 
-                <div className="grid grid-cols-[1fr_auto] gap-2">
+                <div className="grid grid-cols-[1fr_auto] gap-1.5">
                   <button className="btn blue" onClick={addItem}>
                     + Legg til punkt
                   </button>
-                  <button className="btn sm" onClick={addSection}>
+                  <button className="btn sm" onClick={() => setAddSectionOpen(true)}>
                     + Bolk
                   </button>
                 </div>
