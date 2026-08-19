@@ -1117,31 +1117,40 @@ export default function ControlPanel({
               <div className="rounded-lg border border-[#1e1e1e] bg-[#080808] p-3 flex flex-col gap-2">
                 <div className="flex gap-1.5">
                   <input
-                    className="input flex-1"
+                    className="input flex-1 min-w-0"
                     placeholder="Navn på punkt"
                     value={newName}
                     onChange={(e) => setNewName(e.target.value)}
                     onKeyDown={(e) => e.key === "Enter" && addItem()}
                   />
-                  <input
-                    className="input w-12 text-center flex-none"
-                    type="number"
-                    min={0}
-                    placeholder="0"
-                    title="Minutter"
-                    value={newMin}
-                    onChange={(e) => setNewMin(e.target.value)}
-                  />
-                  <input
-                    className="input w-12 text-center flex-none"
-                    type="number"
-                    min={0}
-                    max={59}
-                    placeholder="0"
-                    title="Sekunder"
-                    value={newSec}
-                    onChange={(e) => setNewSec(e.target.value)}
-                  />
+                  {/* .input setter width:100% globalt, som ellers vinner over
+                      Tailwinds w-12 og sprenger boksen full bredde inne i en
+                      flex-rad. Løses ved å legge width-begrensningen på en
+                      ytre wrapper i stedet for å konkurrere med .input sin
+                      egen bredde-regel. */}
+                  <div className="w-12 flex-none">
+                    <input
+                      className="input text-center"
+                      type="number"
+                      min={0}
+                      placeholder="0"
+                      title="Minutter"
+                      value={newMin}
+                      onChange={(e) => setNewMin(e.target.value)}
+                    />
+                  </div>
+                  <div className="w-12 flex-none">
+                    <input
+                      className="input text-center"
+                      type="number"
+                      min={0}
+                      max={59}
+                      placeholder="0"
+                      title="Sekunder"
+                      value={newSec}
+                      onChange={(e) => setNewSec(e.target.value)}
+                    />
+                  </div>
                 </div>
 
                 <input
