@@ -102,18 +102,18 @@ export default function DisplayScreen({ sessionId }: { sessionId: string }) {
     return out;
   }, [agenda, activeIdx, scheduledTimes]);
 
+  // Samme formel som kontrollpanelet (se kommentar der): fast klokke-anker
+  // (planlagt starttid, ellers auto-satt starttid), ekte sanntids-tikking,
+  // ingen kunstig hopping.
   const liveStatus = useMemo(() => {
     if (!session) return 0;
     if (activeIdx < 0 || agenda[activeIdx]?.is_section) return 0;
-    const base = session.program_scheduled_ms || session.program_start_ms;
-    if (base > 0 && session.scheduled_offset_secs >= 0) {
-      const scheduledItemStartMs = base + session.scheduled_offset_secs * 1000;
-      const secondsPast = (Date.now() - scheduledItemStartMs) / 1000;
-      const currentElapsed = session.total_secs - Math.max(0, rem);
-      return secondsPast - currentElapsed;
-    }
-    const curOT = rem < 0 ? Math.abs(rem) : 0;
-    return session.accumulated + curOT;
+    const anchorMs = session.program_scheduled_ms || session.program_start_ms;
+    if (!anchorMs) return rem < 0 ? Math.abs(rem) : 0;
+    const scheduledItemStartMs = anchorMs + session.scheduled_offset_secs * 1000;
+    const secondsPast = (Date.now() - scheduledItemStartMs) / 1000;
+    const currentElapsed = session.total_secs - Math.max(0, rem);
+    return secondsPast - currentElapsed;
   }, [session, activeIdx, agenda, rem]);
 
   if (!isSupabaseConfigured) {

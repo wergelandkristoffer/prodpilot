@@ -31,6 +31,22 @@ function newKey() {
     : Math.random().toString(36).slice(2);
 }
 
+/** Gjør et millisekund-tidsstempel om til verdiene <input type="date"> og
+ * <input type="time"> forventer (lokal tid), slik at innstillinger-modalen
+ * kan vise det som FAKTISK er lagret i databasen i stedet for alltid å
+ * starte tom — det var trolig hovedårsaken til at planlagt-starttid-
+ * funksjonen fremsto som "ødelagt": man kunne ikke se hva som egentlig lå
+ * lagret fra før. */
+function msToDateTimeParts(ms: number): { date: string; time: string } {
+  if (!ms) return { date: "", time: "" };
+  const d = new Date(ms);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return {
+    date: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`,
+    time: `${pad(d.getHours())}:${pad(d.getMinutes())}`,
+  };
+}
+
 /** Setter inn et nytt punkt rett etter siste punkt i valgt bolk, i stedet
  * for alltid nederst i hele programmet. Tom sectionKey ("") betyr "legg
  * til på slutten av programmet" (samme oppførsel som før). */
@@ -688,8 +704,12 @@ export default function ControlPanel({
     router.replace(`/?s=${data.id}`);
     setProjectMenuOpen(false);
     // Hopp rett inn i innstillinger for det nye prosjektet, så man kan gi det
-    // navn og sette opp resten med en gang.
+    // navn og sette opp resten med en gang. Nullstiller også tidsplan-
+    // feltene, så de ikke arver en gammel dato/klokkeslett fra et annet
+    // prosjekt som tilfeldigvis sto åpent i innstillinger nylig.
     setNameDraft(data.name);
+    setSchedDate("");
+    setSchedTime("");
     setSettingsOpen(true);
     refreshProjects();
   }, [router, refreshProjects]);
@@ -927,23 +947,27 @@ export default function ControlPanel({
   }, []);
 
   // ── AVLEDET STATUS (forsinkelse/fremskyndelse) ─────────────────
-  // Kun når brukeren eksplisitt har satt et starttidspunkt (i Innstillinger)
-  // regner vi ut avvik mot en fast, absolutt klokke-plan. Uten et satt
-  // starttidspunkt er "programstart" bare et internt tidsstempel fra første
-  // gang noen trykket play — å måle avvik mot DET fører til at status hopper
-  // rart rundt bare fordi man navigerer/tester frem og tilbake mellom punkter
-  // (klokka går jo videre selv om du ikke faktisk kjører et punkt). Da viser
-  // vi i stedet bare om det AKTIVE punktet akkurat nå går over sin egen tid.
+  // Status regnes mot ett fast klokke-anker: enten et eksplisitt planlagt
+  // starttidspunkt (satt i Innstillinger), ELLER — hvis ingen er satt —
+  // tidspunktet da "Start" ble trykket for aller første gang etter siste
+  // nullstilling (program_start_ms, satt automatisk i loadItem/startTimer).
+  // Uten NOEN av delene (programmet er aldri startet) vises ingen status.
+  //
+  // Med et anker satt, tikker status i ekte sanntid: 1 sekund forskjell i
+  // status per faktisk forløpt sekund — ingen kunstig hopping. Det som KAN
+  // gi et hopp når man navigerer frem/tilbake mellom punkter er reelt: du
+  // sammenligner faktisk klokke mot planen, så hvis du faktisk brukte tid på
+  // å teste/navigere, vil status riktig nok vise at du ligger noe bak planen
+  // akkurat da — det er ikke en bug, det er selve poenget med indikatoren.
   const liveStatus = useMemo(() => {
     if (!session) return 0;
     if (activeIdx < 0 || agenda[activeIdx]?.is_section) return 0;
-    if (session.program_scheduled_ms > 0) {
-      const scheduledItemStartMs = session.program_scheduled_ms + session.scheduled_offset_secs * 1000;
-      const secondsPast = (Date.now() - scheduledItemStartMs) / 1000;
-      const currentElapsed = session.total_secs - Math.max(0, rem);
-      return secondsPast - currentElapsed;
-    }
-    return rem < 0 ? Math.abs(rem) : 0;
+    const anchorMs = session.program_scheduled_ms || session.program_start_ms;
+    if (!anchorMs) return rem < 0 ? Math.abs(rem) : 0;
+    const scheduledItemStartMs = anchorMs + session.scheduled_offset_secs * 1000;
+    const secondsPast = (Date.now() - scheduledItemStartMs) / 1000;
+    const currentElapsed = session.total_secs - Math.max(0, rem);
+    return secondsPast - currentElapsed;
   }, [session, activeIdx, agenda, rem]);
 
   const scheduledTimes = getScheduledTimes();
@@ -983,31 +1007,10 @@ export default function ControlPanel({
   const absRem = Math.max(0, rem);
   const absStatus = Math.abs(liveStatus);
 
-  // Programpanelet er flyttet ut i en egen variabel slik at det kan
-  // gjenbrukes uendret både i vanlig visning (ved siden av klokke/status/
-  // melding) og i det forenklede "Rediger program"-visningen (alene, full
-  // bredde, uten resten av kontrollpanelet synlig).
-  const programPanel = (
-    <div className="panel gap-3.5">
-      <div className="ptitle">Program</div>
-
-      {/* To like knapper — ingen felter vises før man faktisk trykker på
-          en av dem og får opp en pop-up med valgene. */}
-      <div className="grid grid-cols-2 gap-1.5">
-        <button
-          className="btn blue"
-          onClick={() => {
-            setNewItemSectionKey("");
-            setAddItemOpen(true);
-          }}
-        >
-          + Legg til punkt
-        </button>
-        <button className="btn blue" onClick={() => setAddSectionOpen(true)}>
-          + Legg til bolk
-        </button>
-      </div>
-
+  // Punktlisten er en egen variabel slik at den kan gjenbrukes uendret i
+  // både vanlig visning og "Rediger program"-visningen.
+  const agendaListSection = (
+    <>
       <div className="flex items-center">
         <span className="text-[10px] text-[#555]">
           {agenda.filter((a) => !a.is_section).length === 0
@@ -1052,6 +1055,127 @@ export default function ControlPanel({
             />
           )
         )}
+      </div>
+    </>
+  );
+
+  // Vanlig visning: to knapper som åpner pop-up med valgene (navn, tid,
+  // farge osv.) — holder resten av kontrollpanelet ryddig når man bare
+  // trenger å legge til ett og ett punkt innimellom.
+  const programPanel = (
+    <div className="panel gap-3.5">
+      <div className="ptitle">Program</div>
+      <div className="grid grid-cols-2 gap-1.5">
+        <button
+          className="btn blue"
+          onClick={() => {
+            setNewItemSectionKey("");
+            setAddItemOpen(true);
+          }}
+        >
+          + Legg til punkt
+        </button>
+        <button className="btn purple" onClick={() => setAddSectionOpen(true)}>
+          + Legg til bolk
+        </button>
+      </div>
+      {agendaListSection}
+    </div>
+  );
+
+  // "Rediger program"-visning: de samme feltene som ellers dukker opp i en
+  // pop-up står her alltid synlige, side om side (bolk til venstre i lilla,
+  // punkt til høyre i blått) — kort vei til å bygge opp et helt program før
+  // man faktisk er i gang, uten å måtte åpne/lukke pop-uper for hvert punkt.
+  const editProgramPanel = (
+    <div className="flex flex-col gap-3.5">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+        <div className="panel gap-2.5">
+          <div className="ptitle text-[#c4b5fd]">+ Legg til bolk</div>
+          <input
+            className="input"
+            placeholder="Navn på bolk"
+            value={newSectionName}
+            onChange={(e) => setNewSectionName(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && addSection()}
+          />
+          <ColorRow value={newSectionColor} onChange={setNewSectionColor} />
+          <button className="btn purple" onClick={addSection}>
+            Legg til bolk
+          </button>
+        </div>
+
+        <div className="panel gap-2.5">
+          <div className="ptitle text-[#93c5fd]">+ Legg til punkt</div>
+          <input
+            className="input"
+            placeholder="Navn på punkt"
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && addItem()}
+          />
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <input
+                className="input text-center"
+                type="number"
+                min={0}
+                placeholder="0"
+                value={newMin}
+                onChange={(e) => setNewMin(e.target.value)}
+              />
+              <div className="text-[10px] text-[#555] text-center mt-1">minutter</div>
+            </div>
+            <div>
+              <input
+                className="input text-center"
+                type="number"
+                min={0}
+                max={59}
+                placeholder="0"
+                value={newSec}
+                onChange={(e) => setNewSec(e.target.value)}
+              />
+              <div className="text-[10px] text-[#555] text-center mt-1">sekunder</div>
+            </div>
+          </div>
+          <input
+            className="input"
+            placeholder="Notat (valgfritt)"
+            value={newNote}
+            onChange={(e) => setNewNote(e.target.value)}
+          />
+          <ColorRow value={selColor} onChange={setSelColor} />
+          {agenda.some((a) => a.is_section) && (
+            <div>
+              <div className="text-[10px] text-[#555] uppercase tracking-wider mb-1">
+                Bolk
+              </div>
+              <select
+                className="input"
+                value={newItemSectionKey}
+                onChange={(e) => setNewItemSectionKey(e.target.value)}
+              >
+                <option value="">Legg til på slutten av programmet</option>
+                {agenda
+                  .filter((a) => a.is_section)
+                  .map((s) => (
+                    <option key={s.key} value={s.key}>
+                      {s.name || "Uten navn"}
+                    </option>
+                  ))}
+              </select>
+            </div>
+          )}
+          <button className="btn blue" onClick={addItem}>
+            Legg til punkt
+          </button>
+        </div>
+      </div>
+
+      <div className="panel gap-3.5">
+        <div className="ptitle">Program</div>
+        {agendaListSection}
       </div>
     </div>
   );
@@ -1222,7 +1346,7 @@ export default function ControlPanel({
             />
             <ColorRow value={newSectionColor} onChange={setNewSectionColor} />
             <div className="flex gap-2 pt-1">
-              <button className="btn green flex-1" onClick={addSection}>
+              <button className="btn purple flex-1" onClick={addSection}>
                 Legg til bolk
               </button>
               <button className="btn flex-1" onClick={() => setAddSectionOpen(false)}>
@@ -1301,20 +1425,47 @@ export default function ControlPanel({
               className="btn sm flex-shrink-0"
               onClick={() => {
                 setNameDraft(session.name);
+                // Fyller tidsplan-feltene med det som FAKTISK er lagret på
+                // prosjektet akkurat nå, i stedet for å alltid åpne tomt —
+                // det var trolig grunnen til at "planlegg starttidspunkt"
+                // fremsto som ødelagt (man så aldri hva som egentlig sto
+                // lagret fra før).
+                const parts = msToDateTimeParts(session.program_scheduled_ms);
+                setSchedDate(parts.date);
+                setSchedTime(parts.time);
                 setSettingsOpen(true);
               }}
             >
               ⚙ Innstillinger
             </button>
           )}
+
+          {/* Hurtig-kopiering av lenker, øverst til høyre på samme linje. */}
+          <div className="ml-auto flex gap-2.5 flex-shrink-0">
+            <button
+              className="btn sm"
+              onClick={() => copyLink("display", displayUrl)}
+              disabled={!displayUrl}
+            >
+              {copiedLink === "display" ? "Kopiert!" : "Kopier visningslenke"}
+            </button>
+            <button
+              className="btn sm"
+              onClick={() => copyLink("remote", remoteUrl)}
+              disabled={!remoteUrl}
+            >
+              {copiedLink === "remote" ? "Kopiert!" : "Kopier fjernkontroll-lenke"}
+            </button>
+          </div>
         </div>
 
         {editMode ? (
-          /* REDIGER PROGRAM-VISNING: kun programlisten, i full bredde.
+          /* REDIGER PROGRAM-VISNING: legg-til-bolk og legg-til-punkt står
+             alltid synlige side om side øverst, med programlisten under.
              Resten av kontrollpanelet (klokke, status, transport, melding
              til visningsskjerm) er bevisst ikke synlig her — dette er kun
              for å bygge opp programmet før man faktisk er i gang. */
-          <div className="max-w-2xl">{programPanel}</div>
+          <div className="max-w-4xl">{editProgramPanel}</div>
         ) : (
         <div className="grid grid-cols-1 lg:grid-cols-[2fr_1fr] gap-4 items-start">
             {/* VENSTRE: PROGRAM */}
@@ -1503,6 +1654,11 @@ export default function ControlPanel({
           background: #0d1f40;
           border-color: #1e3a70;
           color: #93c5fd;
+        }
+        .btn.purple {
+          background: #241040;
+          border-color: #3d1e70;
+          color: #c4b5fd;
         }
         .btn.red {
           background: #2a0a0a;
