@@ -89,6 +89,14 @@ export default function RemoteControl({ sessionId }: { sessionId: string }) {
   const rawActiveIdx = session?.active_idx ?? -1;
   const activeIdx = rawActiveIdx >= 0 && rawActiveIdx < agenda.length ? rawActiveIdx : -1;
 
+  // Ren "tikker" som tvinger statusen til å regnes ut på nytt hvert sekund
+  // uansett — også mens man står i PAUSE (se kommentar ved liveStatus).
+  const [nowTick, setNowTick] = useState(0);
+  useEffect(() => {
+    const iv = setInterval(() => setNowTick((n) => n + 1), 1000);
+    return () => clearInterval(iv);
+  }, []);
+
   const patchSession = useCallback(
     async (patch: Partial<SessionRow>) => {
       setSession((prev) => (prev ? { ...prev, ...patch } : prev));
@@ -186,7 +194,7 @@ export default function RemoteControl({ sessionId }: { sessionId: string }) {
     const secondsPast = (Date.now() - scheduledItemStartMs) / 1000;
     const currentElapsed = session.total_secs - Math.max(0, rem);
     return secondsPast - currentElapsed;
-  }, [session, activeIdx, agenda, rem]);
+  }, [session, activeIdx, agenda, rem, nowTick]);
 
   if (!isSupabaseConfigured) {
     return <SupabaseSetupNotice />;

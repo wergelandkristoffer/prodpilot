@@ -155,8 +155,10 @@ export default function ControlPanel({
   const [addItemOpen, setAddItemOpen] = useState(false);
   const [newItemSectionKey, setNewItemSectionKey] = useState("");
   const [editMode, setEditMode] = useState(false);
+  const [linkMenuOpen, setLinkMenuOpen] = useState<"display" | "remote" | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const linkMenuRef = useRef<HTMLDivElement>(null);
   const logoInputRef = useRef<HTMLInputElement>(null);
   const autostartFiredRef = useRef(false);
 
@@ -946,6 +948,18 @@ export default function ControlPanel({
     window.setTimeout(() => setCopiedLink((cur) => (cur === which ? null : cur)), 1500);
   }, []);
 
+  // Lukk "Fjernkontroll"/"Visningsskjerm"-menyen ved klikk utenfor.
+  useEffect(() => {
+    if (!linkMenuOpen) return;
+    function onDocClick(e: MouseEvent) {
+      if (linkMenuRef.current && !linkMenuRef.current.contains(e.target as Node)) {
+        setLinkMenuOpen(null);
+      }
+    }
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, [linkMenuOpen]);
+
   // ── AVLEDET STATUS (forsinkelse/fremskyndelse) ─────────────────
   // Status regnes mot ett fast klokke-anker: enten et eksplisitt planlagt
   // starttidspunkt (satt i Innstillinger), ELLER — hvis ingen er satt —
@@ -968,7 +982,11 @@ export default function ControlPanel({
     const secondsPast = (Date.now() - scheduledItemStartMs) / 1000;
     const currentElapsed = session.total_secs - Math.max(0, rem);
     return secondsPast - currentElapsed;
-  }, [session, activeIdx, agenda, rem]);
+    // `now` tikker hvert sekund (se ORIGIN+KLOKKE-effekten) og er med her
+    // for å tvinge status til å regnes ut på nytt kontinuerlig — også mens
+    // man står i PAUSE. Uten den fryser status idet man trykker pause,
+    // siden `rem` slutter å oppdatere seg selv når timeren ikke går.
+  }, [session, activeIdx, agenda, rem, now]);
 
   const scheduledTimes = getScheduledTimes();
 
@@ -1007,9 +1025,9 @@ export default function ControlPanel({
   const absRem = Math.max(0, rem);
   const absStatus = Math.abs(liveStatus);
 
-  // Punktlisten er en egen variabel slik at den kan gjenbrukes uendret i
-  // både vanlig visning og "Rediger program"-visningen.
-  const agendaListSection = (
+  // Punktlisten er en funksjon (ikke en fast variabel) slik at den kan
+  // gjenbrukes med ulik makshøyde i vanlig visning vs. "Rediger program".
+  const renderAgendaList = (maxHeightClass: string) => (
     <>
       <div className="flex items-center">
         <span className="text-[10px] text-[#555]">
@@ -1024,7 +1042,7 @@ export default function ControlPanel({
         </button>
       </div>
 
-      <div className="flex flex-col gap-0.5 max-h-[560px] overflow-y-auto pr-0.5">
+      <div className={`flex flex-col gap-0.5 ${maxHeightClass} overflow-y-auto pr-0.5`}>
         {agenda.map((item, i) =>
           item.is_section ? (
             <SectionRow
@@ -1079,18 +1097,19 @@ export default function ControlPanel({
           + Legg til bolk
         </button>
       </div>
-      {agendaListSection}
+      {renderAgendaList("max-h-[560px]")}
     </div>
   );
 
-  // "Rediger program"-visning: de samme feltene som ellers dukker opp i en
-  // pop-up står her alltid synlige, side om side (bolk til venstre i lilla,
-  // punkt til høyre i blått) — kort vei til å bygge opp et helt program før
-  // man faktisk er i gang, uten å måtte åpne/lukke pop-uper for hvert punkt.
+  // "Rediger program"-visning: legg-til-feltene ligger fast til venstre
+  // (bolk øverst, litt mer kompakt siden den har færre felt — punkt under,
+  // med full plass) mens hele programmet ligger til høyre i full bredde og
+  // bla-bart for seg selv. Venstre kolonne er sticky, så den blir stående
+  // mens man blar i et langt program til høyre.
   const editProgramPanel = (
-    <div className="flex flex-col gap-3.5">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-        <div className="panel gap-2.5">
+    <div className="grid grid-cols-1 lg:grid-cols-[340px_1fr] gap-3.5 items-start">
+      <div className="flex flex-col gap-3.5 lg:sticky lg:top-4">
+        <div className="panel gap-2 py-3">
           <div className="ptitle text-[#c4b5fd]">+ Legg til bolk</div>
           <input
             className="input"
@@ -1100,7 +1119,7 @@ export default function ControlPanel({
             onKeyDown={(e) => e.key === "Enter" && addSection()}
           />
           <ColorRow value={newSectionColor} onChange={setNewSectionColor} />
-          <button className="btn purple" onClick={addSection}>
+          <button className="btn purple sm" onClick={addSection}>
             Legg til bolk
           </button>
         </div>
@@ -1175,7 +1194,7 @@ export default function ControlPanel({
 
       <div className="panel gap-3.5">
         <div className="ptitle">Program</div>
-        {agendaListSection}
+        {renderAgendaList("max-h-[75vh]")}
       </div>
     </div>
   );
@@ -1440,22 +1459,71 @@ export default function ControlPanel({
             </button>
           )}
 
-          {/* Hurtig-kopiering av lenker, øverst til høyre på samme linje. */}
-          <div className="ml-auto flex gap-2.5 flex-shrink-0">
-            <button
-              className="btn sm"
-              onClick={() => copyLink("display", displayUrl)}
-              disabled={!displayUrl}
-            >
-              {copiedLink === "display" ? "Kopiert!" : "Kopier visningslenke"}
-            </button>
-            <button
-              className="btn sm"
-              onClick={() => copyLink("remote", remoteUrl)}
-              disabled={!remoteUrl}
-            >
-              {copiedLink === "remote" ? "Kopiert!" : "Kopier fjernkontroll-lenke"}
-            </button>
+          {/* Fjernkontroll / visningsskjerm — små knapper med Åpne/Kopier-valg,
+              øverst til høyre på samme linje. */}
+          <div className="ml-auto flex gap-1.5 flex-shrink-0" ref={linkMenuRef}>
+            <div className="relative">
+              <button
+                className="btn xs"
+                onClick={() => setLinkMenuOpen((v) => (v === "remote" ? null : "remote"))}
+                disabled={!remoteUrl}
+              >
+                Fjernkontroll
+              </button>
+              {linkMenuOpen === "remote" && (
+                <div className="absolute right-0 top-full mt-1 z-30 flex flex-col bg-[#141414] border border-[#2a2a2a] rounded-lg shadow-xl overflow-hidden min-w-[130px]">
+                  <a
+                    href={remoteUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-3 py-2 text-xs text-[#ddd] hover:bg-[#1c1c1c] text-left"
+                    onClick={() => setLinkMenuOpen(null)}
+                  >
+                    Åpne
+                  </a>
+                  <button
+                    className="px-3 py-2 text-xs text-[#ddd] hover:bg-[#1c1c1c] text-left"
+                    onClick={() => {
+                      copyLink("remote", remoteUrl);
+                      setLinkMenuOpen(null);
+                    }}
+                  >
+                    {copiedLink === "remote" ? "Kopiert!" : "Kopier lenke"}
+                  </button>
+                </div>
+              )}
+            </div>
+            <div className="relative">
+              <button
+                className="btn xs"
+                onClick={() => setLinkMenuOpen((v) => (v === "display" ? null : "display"))}
+                disabled={!displayUrl}
+              >
+                Visningsskjerm
+              </button>
+              {linkMenuOpen === "display" && (
+                <div className="absolute right-0 top-full mt-1 z-30 flex flex-col bg-[#141414] border border-[#2a2a2a] rounded-lg shadow-xl overflow-hidden min-w-[130px]">
+                  <a
+                    href={displayUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-3 py-2 text-xs text-[#ddd] hover:bg-[#1c1c1c] text-left"
+                    onClick={() => setLinkMenuOpen(null)}
+                  >
+                    Åpne
+                  </a>
+                  <button
+                    className="px-3 py-2 text-xs text-[#ddd] hover:bg-[#1c1c1c] text-left"
+                    onClick={() => {
+                      copyLink("display", displayUrl);
+                      setLinkMenuOpen(null);
+                    }}
+                  >
+                    {copiedLink === "display" ? "Kopiert!" : "Kopier lenke"}
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
@@ -1465,7 +1533,7 @@ export default function ControlPanel({
              Resten av kontrollpanelet (klokke, status, transport, melding
              til visningsskjerm) er bevisst ikke synlig her — dette er kun
              for å bygge opp programmet før man faktisk er i gang. */
-          <div className="max-w-4xl">{editProgramPanel}</div>
+          <div className="w-full">{editProgramPanel}</div>
         ) : (
         <div className="grid grid-cols-1 lg:grid-cols-[2fr_1fr] gap-4 items-start">
             {/* VENSTRE: PROGRAM */}
@@ -1481,6 +1549,19 @@ export default function ControlPanel({
                 <div className="text-[10px] text-[#333] text-center">
                   {now.toLocaleDateString("no-NO", { weekday: "long", day: "numeric", month: "long" })}
                 </div>
+                {session.program_scheduled_ms > 0 && (
+                  <div className="text-[10px] text-[#555] text-center mt-0.5">
+                    Planlagt start:{" "}
+                    {new Date(session.program_scheduled_ms).toLocaleString("no-NO", {
+                      day: "numeric",
+                      month: "short",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                    {session.program_scheduled_ms > now.getTime() &&
+                      ` · om ${fmt(Math.round((session.program_scheduled_ms - now.getTime()) / 1000))}`}
+                  </div>
+                )}
               </div>
 
               {/* Status */}
@@ -1745,7 +1826,12 @@ export default function ControlPanel({
         .t-reset {
           background: #141414;
           border-color: #2a2a2a;
-          color: #555;
+          color: #888;
+        }
+        .t-reset:hover:not(:disabled) {
+          background: #1c1c1c;
+          border-color: #3a3a3a;
+          color: #d8d8d8;
         }
         .nav-btn {
           border-radius: 7px;
@@ -1763,7 +1849,7 @@ export default function ControlPanel({
         .n-prev {
           background: #141414;
           border: 1px solid #2a2a2a;
-          color: #555;
+          color: #888;
         }
         .n-prev:hover:not(:disabled) {
           background: #1c1c1c;

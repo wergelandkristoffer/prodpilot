@@ -78,6 +78,17 @@ export default function DisplayScreen({ sessionId }: { sessionId: string }) {
     session ?? { running: false, started_at: null, paused_rem: 0 }
   );
 
+  // Ren "tikker" som tvinger statusen til å regnes ut på nytt hvert sekund
+  // uansett — også mens man står i PAUSE. Uten denne fryser status idet
+  // du trykker pause (fordi rem, som liveStatus ellers er avhengig av,
+  // slutter å oppdatere seg selv når timeren ikke går), selv om avviket
+  // mot planen fortsetter å vokse for hvert sekund du står i pause.
+  const [nowTick, setNowTick] = useState(0);
+  useEffect(() => {
+    const iv = setInterval(() => setNowTick((n) => n + 1), 1000);
+    return () => clearInterval(iv);
+  }, []);
+
   const rawActiveIdx = session?.active_idx ?? -1;
   const activeIdx = rawActiveIdx >= 0 && rawActiveIdx < agenda.length ? rawActiveIdx : -1;
 
@@ -114,7 +125,7 @@ export default function DisplayScreen({ sessionId }: { sessionId: string }) {
     const secondsPast = (Date.now() - scheduledItemStartMs) / 1000;
     const currentElapsed = session.total_secs - Math.max(0, rem);
     return secondsPast - currentElapsed;
-  }, [session, activeIdx, agenda, rem]);
+  }, [session, activeIdx, agenda, rem, nowTick]);
 
   if (!isSupabaseConfigured) {
     return <SupabaseSetupNotice />;
@@ -190,7 +201,7 @@ export default function DisplayScreen({ sessionId }: { sessionId: string }) {
           {upcoming.map(({ item, clock }, i) => (
             <div key={item.id} className="flex flex-col items-center gap-1 opacity-70">
               <span className="text-[10px] uppercase tracking-widest text-white/40">
-                {i === 0 ? "Neste" : `+${i + 1}`}
+                {i === 0 ? "Neste" : `Nr. ${i + 1}`}
               </span>
               <span
                 className="w-2 h-2 rounded-full"
