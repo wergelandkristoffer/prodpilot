@@ -31,6 +31,27 @@ function newKey() {
     : Math.random().toString(36).slice(2);
 }
 
+/** Setter inn et nytt punkt rett etter siste punkt i valgt bolk, i stedet
+ * for alltid nederst i hele programmet. Tom sectionKey ("") betyr "legg
+ * til på slutten av programmet" (samme oppførsel som før). */
+function insertAfterSection(
+  list: LocalItem[],
+  sectionKey: string,
+  item: LocalItem
+): LocalItem[] {
+  if (!sectionKey) return [...list, item];
+  const startIdx = list.findIndex((it) => it.is_section && it.key === sectionKey);
+  if (startIdx === -1) return [...list, item];
+  let endIdx = list.length;
+  for (let i = startIdx + 1; i < list.length; i++) {
+    if (list[i].is_section) {
+      endIdx = i;
+      break;
+    }
+  }
+  return [...list.slice(0, endIdx), item, ...list.slice(endIdx)];
+}
+
 /** Enkelt pause-ikon (to strek) — bevisst IKKE emoji, siden emoji-tegnet ⏸
  * rendres som et fargerikt bilde på iOS/Android i stedet for et nøytralt ikon. */
 function PauseIcon() {
@@ -115,6 +136,9 @@ export default function ControlPanel({
   const [addSectionOpen, setAddSectionOpen] = useState(false);
   const [newSectionName, setNewSectionName] = useState("");
   const [newSectionColor, setNewSectionColor] = useState(COLORS[0]);
+  const [addItemOpen, setAddItemOpen] = useState(false);
+  const [newItemSectionKey, setNewItemSectionKey] = useState("");
+  const [editMode, setEditMode] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const logoInputRef = useRef<HTMLInputElement>(null);
@@ -530,12 +554,23 @@ export default function ControlPanel({
       note: newNote.trim(),
       color: selColor,
     };
-    syncAgenda([...agenda, item]);
+    syncAgenda(insertAfterSection(agenda, newItemSectionKey, item));
     setNewName("");
     setNewMin("");
     setNewSec("");
     setNewNote("");
-  }, [agenda, newName, newMin, newSec, newNote, selColor, syncAgenda]);
+    setNewItemSectionKey("");
+    setAddItemOpen(false);
+  }, [agenda, newName, newMin, newSec, newNote, selColor, newItemSectionKey, syncAgenda]);
+
+  const closeAddItem = useCallback(() => {
+    setAddItemOpen(false);
+    setNewName("");
+    setNewMin("");
+    setNewSec("");
+    setNewNote("");
+    setNewItemSectionKey("");
+  }, []);
 
   const addSection = useCallback(() => {
     const name = newSectionName.trim() || "Ny bolk";
@@ -948,6 +983,79 @@ export default function ControlPanel({
   const absRem = Math.max(0, rem);
   const absStatus = Math.abs(liveStatus);
 
+  // Programpanelet er flyttet ut i en egen variabel slik at det kan
+  // gjenbrukes uendret både i vanlig visning (ved siden av klokke/status/
+  // melding) og i det forenklede "Rediger program"-visningen (alene, full
+  // bredde, uten resten av kontrollpanelet synlig).
+  const programPanel = (
+    <div className="panel gap-3.5">
+      <div className="ptitle">Program</div>
+
+      {/* To like knapper — ingen felter vises før man faktisk trykker på
+          en av dem og får opp en pop-up med valgene. */}
+      <div className="grid grid-cols-2 gap-1.5">
+        <button
+          className="btn blue"
+          onClick={() => {
+            setNewItemSectionKey("");
+            setAddItemOpen(true);
+          }}
+        >
+          + Legg til punkt
+        </button>
+        <button className="btn blue" onClick={() => setAddSectionOpen(true)}>
+          + Legg til bolk
+        </button>
+      </div>
+
+      <div className="flex items-center">
+        <span className="text-[10px] text-[#555]">
+          {agenda.filter((a) => !a.is_section).length === 0
+            ? "Ingen punkter"
+            : `${agenda.filter((a) => !a.is_section).length} punkt${
+                agenda.filter((a) => !a.is_section).length === 1 ? "" : "er"
+              }`}
+        </span>
+        <button className="btn xs red ml-auto" onClick={clearAll}>
+          Tøm alt
+        </button>
+      </div>
+
+      <div className="flex flex-col gap-0.5 max-h-[560px] overflow-y-auto pr-0.5">
+        {agenda.map((item, i) =>
+          item.is_section ? (
+            <SectionRow
+              key={item.key}
+              item={item}
+              i={i}
+              moveUp={moveUp}
+              moveDown={moveDown}
+              openEdit={openEdit}
+              removeItem={removeItem}
+              timeLabel={fmtClock(scheduledTimes[i])}
+              secLabel={itemSum(agenda, i)}
+            />
+          ) : (
+            <AgendaRow
+              key={item.key}
+              item={item}
+              i={i}
+              num={agenda.slice(0, i + 1).filter((a) => !a.is_section).length}
+              isActive={i === activeIdx}
+              isDone={activeIdx >= 0 && i < activeIdx}
+              clock={fmtClock(scheduledTimes[i])}
+              moveUp={moveUp}
+              moveDown={moveDown}
+              openEdit={openEdit}
+              removeItem={removeItem}
+              loadItem={loadItem}
+            />
+          )
+        )}
+      </div>
+    </div>
+  );
+
   return (
     <div className="min-h-screen p-4 md:p-5">
       {/* EDIT MODAL */}
@@ -1002,6 +1110,90 @@ export default function ControlPanel({
                 Lagre endringer
               </button>
               <button className="btn flex-1" onClick={() => setEditIdx(null)}>
+                Avbryt
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* NYTT PUNKT-MODAL */}
+      {addItemOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+          onClick={closeAddItem}
+        >
+          <div
+            className="w-full max-w-sm rounded-xl border border-[#2a2a2a] bg-[#111] p-5 flex flex-col gap-3"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-sm font-semibold text-white">Nytt punkt</h3>
+            <input
+              className="input"
+              placeholder="Navn på punkt"
+              autoFocus
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && addItem()}
+            />
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <input
+                  className="input text-center"
+                  type="number"
+                  min={0}
+                  placeholder="0"
+                  value={newMin}
+                  onChange={(e) => setNewMin(e.target.value)}
+                />
+                <div className="text-[10px] text-[#555] text-center mt-1">minutter</div>
+              </div>
+              <div>
+                <input
+                  className="input text-center"
+                  type="number"
+                  min={0}
+                  max={59}
+                  placeholder="0"
+                  value={newSec}
+                  onChange={(e) => setNewSec(e.target.value)}
+                />
+                <div className="text-[10px] text-[#555] text-center mt-1">sekunder</div>
+              </div>
+            </div>
+            <input
+              className="input"
+              placeholder="Notat (valgfritt)"
+              value={newNote}
+              onChange={(e) => setNewNote(e.target.value)}
+            />
+            <ColorRow value={selColor} onChange={setSelColor} />
+            {agenda.some((a) => a.is_section) && (
+              <div>
+                <div className="text-[10px] text-[#555] uppercase tracking-wider mb-1">
+                  Bolk
+                </div>
+                <select
+                  className="input"
+                  value={newItemSectionKey}
+                  onChange={(e) => setNewItemSectionKey(e.target.value)}
+                >
+                  <option value="">Legg til på slutten av programmet</option>
+                  {agenda
+                    .filter((a) => a.is_section)
+                    .map((s) => (
+                      <option key={s.key} value={s.key}>
+                        {s.name || "Uten navn"}
+                      </option>
+                    ))}
+                </select>
+              </div>
+            )}
+            <div className="flex gap-2 pt-1">
+              <button className="btn green flex-1" onClick={addItem}>
+                Legg til punkt
+              </button>
+              <button className="btn flex-1" onClick={closeAddItem}>
                 Avbryt
               </button>
             </div>
@@ -1099,119 +1291,34 @@ export default function ControlPanel({
         <div className="flex items-center gap-2.5 mb-4">
           <h1 className="text-2xl font-bold text-white truncate">{session.name}</h1>
           <button
-            className="btn sm flex-shrink-0"
-            onClick={() => {
-              setNameDraft(session.name);
-              setSettingsOpen(true);
-            }}
+            className={`btn sm flex-shrink-0 ${editMode ? "green" : ""}`}
+            onClick={() => setEditMode((v) => !v)}
           >
-            ⚙ Innstillinger
+            {editMode ? "✓ Ferdig med redigering" : "✎ Rediger program"}
           </button>
+          {!editMode && (
+            <button
+              className="btn sm flex-shrink-0"
+              onClick={() => {
+                setNameDraft(session.name);
+                setSettingsOpen(true);
+              }}
+            >
+              ⚙ Innstillinger
+            </button>
+          )}
         </div>
 
+        {editMode ? (
+          /* REDIGER PROGRAM-VISNING: kun programlisten, i full bredde.
+             Resten av kontrollpanelet (klokke, status, transport, melding
+             til visningsskjerm) er bevisst ikke synlig her — dette er kun
+             for å bygge opp programmet før man faktisk er i gang. */
+          <div className="max-w-2xl">{programPanel}</div>
+        ) : (
         <div className="grid grid-cols-1 lg:grid-cols-[2fr_1fr] gap-4 items-start">
             {/* VENSTRE: PROGRAM */}
-            <div className="panel gap-3.5">
-              <div className="ptitle">Program</div>
-
-              <div className="rounded-lg border border-[#1e1e1e] bg-[#080808] p-3 flex flex-col gap-2">
-                {/* CSS Grid i stedet for flex: bredden på hver kolonne
-                    styres av grid-malen (1fr / 52px / 52px), helt uavhengig
-                    av .input sin egen width:100%-regel — samme mønster som
-                    minutt/sekund-boksene i redigeringsvinduet, som aldri har
-                    hatt dette problemet. Dette kan ikke lenger tape mot
-                    .input i CSS-kaskaden slik den forrige flex-varianten
-                    gjorde. */}
-                <div className="grid grid-cols-[1fr_52px_52px] gap-1.5 items-start">
-                  <input
-                    className="input"
-                    placeholder="Navn på punkt"
-                    value={newName}
-                    onChange={(e) => setNewName(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && addItem()}
-                  />
-                  <div>
-                    <input
-                      className="input text-center"
-                      type="number"
-                      min={0}
-                      placeholder="0"
-                      title="Minutter"
-                      value={newMin}
-                      onChange={(e) => setNewMin(e.target.value)}
-                    />
-                    <div className="text-[9px] text-[#555] text-center mt-0.5">min</div>
-                  </div>
-                  <div>
-                    <input
-                      className="input text-center"
-                      type="number"
-                      min={0}
-                      max={59}
-                      placeholder="0"
-                      title="Sekunder"
-                      value={newSec}
-                      onChange={(e) => setNewSec(e.target.value)}
-                    />
-                    <div className="text-[9px] text-[#555] text-center mt-0.5">sek</div>
-                  </div>
-                </div>
-
-                <input
-                  className="input"
-                  placeholder="Notat (valgfritt)"
-                  value={newNote}
-                  onChange={(e) => setNewNote(e.target.value)}
-                />
-
-                <ColorRow value={selColor} onChange={setSelColor} />
-
-                <div className="grid grid-cols-[1fr_auto] gap-1.5">
-                  <button className="btn blue" onClick={addItem}>
-                    + Legg til punkt
-                  </button>
-                  <button className="btn sm" onClick={() => setAddSectionOpen(true)}>
-                    + Bolk
-                  </button>
-                </div>
-              </div>
-
-              <div className="flex items-center">
-                <span className="text-[10px] text-[#555]">
-                  {agenda.filter((a) => !a.is_section).length === 0
-                    ? "Ingen punkter"
-                    : `${agenda.filter((a) => !a.is_section).length} punkt${
-                        agenda.filter((a) => !a.is_section).length === 1 ? "" : "er"
-                      }`}
-                </span>
-                <button className="btn xs red ml-auto" onClick={clearAll}>
-                  Tøm alt
-                </button>
-              </div>
-
-              <div className="flex flex-col gap-0.5 max-h-[560px] overflow-y-auto pr-0.5">
-                {agenda.map((item, i) =>
-                  item.is_section ? (
-                    <SectionRow key={item.key} item={item} i={i} moveUp={moveUp} moveDown={moveDown} openEdit={openEdit} removeItem={removeItem} timeLabel={fmtClock(scheduledTimes[i])} secLabel={itemSum(agenda, i)} />
-                  ) : (
-                    <AgendaRow
-                      key={item.key}
-                      item={item}
-                      i={i}
-                      num={agenda.slice(0, i + 1).filter((a) => !a.is_section).length}
-                      isActive={i === activeIdx}
-                      isDone={activeIdx >= 0 && i < activeIdx}
-                      clock={fmtClock(scheduledTimes[i])}
-                      moveUp={moveUp}
-                      moveDown={moveDown}
-                      openEdit={openEdit}
-                      removeItem={removeItem}
-                      loadItem={loadItem}
-                    />
-                  )
-                )}
-              </div>
-            </div>
+            {programPanel}
 
             {/* HØYRE: KONTROLLER */}
             <div className="flex flex-col gap-3.5">
@@ -1335,6 +1442,7 @@ export default function ControlPanel({
               </div>
             </div>
           </div>
+        )}
         </div>
 
       <style jsx global>{`
