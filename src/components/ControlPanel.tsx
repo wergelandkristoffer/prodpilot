@@ -85,6 +85,7 @@ export default function ControlPanel({
   const [ready, setReady] = useState(false);
   const [initError, setInitError] = useState<string | null>(null);
   const [projects, setProjects] = useState<ProjectOption[]>([]);
+  const [projectMenuOpen, setProjectMenuOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [nameDraft, setNameDraft] = useState("");
   const [copiedLink, setCopiedLink] = useState<"display" | "remote" | null>(null);
@@ -596,6 +597,7 @@ export default function ControlPanel({
     setAgenda([]);
     router.replace(`/?s=${data.id}`);
     setSettingsOpen(false);
+    setProjectMenuOpen(false);
     refreshProjects();
   }, [router, refreshProjects]);
 
@@ -603,6 +605,7 @@ export default function ControlPanel({
     async (id: string) => {
       if (id === sessionId) {
         setSettingsOpen(false);
+        setProjectMenuOpen(false);
         return;
       }
       const { data } = await supabase.from("sessions").select("*").eq("id", id).maybeSingle();
@@ -612,6 +615,7 @@ export default function ControlPanel({
       await fetchAgenda(id);
       router.replace(`/?s=${id}`);
       setSettingsOpen(false);
+      setProjectMenuOpen(false);
     },
     [sessionId, fetchAgenda, router]
   );
@@ -967,36 +971,40 @@ export default function ControlPanel({
         />
       )}
 
-      <div className="flex gap-4 items-start">
-        <ProjectSidebar
-          projects={projects}
-          currentId={sessionId}
-          onSelect={switchProject}
-          onCreate={createProject}
-        />
+      <ProjectSidebar
+        open={projectMenuOpen}
+        onClose={() => setProjectMenuOpen(false)}
+        projects={projects}
+        currentId={sessionId}
+        onSelect={switchProject}
+        onCreate={createProject}
+      />
 
-        <div className="flex-1 min-w-0">
-          {/* TOPBAR */}
-          <div className="flex items-center justify-between mb-3">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/prodpilot-logo.png" alt="ProdPilot" className="h-4 w-auto" />
-          </div>
+      <div>
+        {/* TOPBAR */}
+        <div className="flex items-center justify-between mb-3">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/prodpilot-logo.png" alt="ProdPilot" className="h-4 w-auto" />
+          <button className="btn sm" onClick={() => setProjectMenuOpen(true)}>
+            ☰ Prosjekter
+          </button>
+        </div>
 
-          {/* PROSJEKTNAVN */}
-          <div className="flex items-center gap-2.5 mb-4">
-            <h1 className="text-2xl font-bold text-white truncate">{session.name}</h1>
-            <button
-              className="btn sm flex-shrink-0"
-              onClick={() => {
-                setNameDraft(session.name);
-                setSettingsOpen(true);
-              }}
-            >
-              ⚙ Innstillinger
-            </button>
-          </div>
+        {/* PROSJEKTNAVN */}
+        <div className="flex items-center gap-2.5 mb-4">
+          <h1 className="text-2xl font-bold text-white truncate">{session.name}</h1>
+          <button
+            className="btn sm flex-shrink-0"
+            onClick={() => {
+              setNameDraft(session.name);
+              setSettingsOpen(true);
+            }}
+          >
+            ⚙ Innstillinger
+          </button>
+        </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-[2fr_1fr] gap-4 items-start">
+        <div className="grid grid-cols-1 lg:grid-cols-[2fr_1fr] gap-4 items-start">
             {/* VENSTRE: PROGRAM */}
             <div className="panel gap-3.5">
               <div className="ptitle">Program</div>
@@ -1214,7 +1222,6 @@ export default function ControlPanel({
             </div>
           </div>
         </div>
-      </div>
 
       <style jsx global>{`
         .panel {

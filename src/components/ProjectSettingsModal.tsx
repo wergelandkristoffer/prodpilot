@@ -1,6 +1,6 @@
 "use client";
 
-import { RefObject } from "react";
+import { RefObject, useEffect } from "react";
 import { SessionRow } from "@/lib/types";
 
 function LinkRow({
@@ -92,16 +92,35 @@ export default function ProjectSettingsModal({
   onExport: () => void;
   onDelete: () => void;
 }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
   return (
-    <div className="fixed inset-0 z-50 flex items-start md:items-center justify-center bg-black/80 p-4 overflow-y-auto">
-      <div className="w-full max-w-lg rounded-xl border border-[#2a2a2a] bg-[#111] p-5 flex flex-col gap-4 my-6">
-        <div className="flex items-center justify-between">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-lg max-h-[85vh] rounded-xl border border-[#2a2a2a] bg-[#111] flex flex-col overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-5 py-4 border-b border-[#2a2a2a] flex-shrink-0">
           <h3 className="text-sm font-semibold text-white">Innstillinger for prosjekt</h3>
-          <button className="btn xs" onClick={onClose}>
-            ✕ Lukk
+          <button
+            className="w-7 h-7 flex items-center justify-center rounded-full border border-[#2a2a2a] bg-[#141414] text-[#aaa] text-sm hover:bg-[#1c1c1c] hover:text-white transition-colors flex-shrink-0"
+            onClick={onClose}
+            aria-label="Lukk"
+          >
+            ✕
           </button>
         </div>
 
+        <div className="flex flex-col gap-4 p-5 overflow-y-auto">
         {/* Navn */}
         <div className="panel">
           <div className="ptitle">Navn</div>
@@ -285,6 +304,7 @@ export default function ProjectSettingsModal({
           <button className="btn red sm w-fit" onClick={onDelete}>
             Slett prosjekt
           </button>
+        </div>
         </div>
       </div>
     </div>
