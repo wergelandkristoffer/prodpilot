@@ -1156,6 +1156,11 @@ export default function ControlPanel({
   const plannedEndMs =
     programAnchorMs && totalProgramSecs > 0 ? programAnchorMs + totalProgramSecs * 1000 : null;
   const estimatedEndMs = plannedEndMs != null ? plannedEndMs + liveStatus * 1000 : null;
+  // Ny tidtaker: hvor mye tid som er igjen av HELE det planlagte programmet
+  // (ikke bare det aktive punktet). Negativt tall (etter planlagt sluttid)
+  // vises som overtid i rødt, akkurat som de andre tidtakerne.
+  const programRemainingSecs =
+    plannedEndMs != null ? Math.round((plannedEndMs - now.getTime()) / 1000) : null;
 
   // Punktlisten er en funksjon (ikke en fast variabel) slik at den kan
   // gjenbrukes med ulik makshøyde i vanlig visning vs. "Rediger program".
@@ -1235,7 +1240,7 @@ export default function ControlPanel({
   // farge osv.) — holder resten av kontrollpanelet ryddig når man bare
   // trenger å legge til ett og ett punkt innimellom.
   const programPanel = (
-    <div className="panel gap-3.5 h-full">
+    <div className="panel gap-3.5 h-full min-h-0">
       <div className="ptitle">Program</div>
       <div className="grid grid-cols-2 gap-1.5">
         <button
@@ -1251,7 +1256,10 @@ export default function ControlPanel({
           + Legg til bolk
         </button>
       </div>
-      {renderAgendaList("flex-1 min-h-[200px]")}
+      {/* Ingen fast minstehøyde her lenger — listen skal bla INNAD i boksen
+          uansett hvor mye plass boksen faktisk får, i stedet for å presse
+          hele siden til å vokse/bla. */}
+      {renderAgendaList("flex-1 min-h-0")}
     </div>
   );
 
@@ -1354,7 +1362,7 @@ export default function ControlPanel({
   );
 
   return (
-    <div className="min-h-screen w-full overflow-x-hidden p-4 md:p-5">
+    <div className="h-dvh w-full overflow-hidden p-4 md:p-5 flex flex-col">
       {/* EDIT MODAL */}
       {editIdx !== null && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
@@ -1614,9 +1622,9 @@ export default function ControlPanel({
         onCreate={createProject}
       />
 
-      <div>
+      <div className="flex flex-col flex-1 min-h-0">
         {/* TOPBAR */}
-        <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center justify-between mb-3 flex-shrink-0">
           <button
             className="flex items-center gap-1.5 pl-2.5 pr-3.5 py-1.5 rounded-full border border-[#2a2a2a] bg-transparent text-[#999] text-xs font-semibold tracking-wide hover:bg-[#141414] hover:text-white hover:border-[#3a3a3a] transition-colors"
             onClick={() => setProjectMenuOpen(true)}
@@ -1632,99 +1640,106 @@ export default function ControlPanel({
           <img src="/prodpilot-logo.png" alt="ProdPilot" className="h-6 w-auto" />
         </div>
 
-        {/* PROSJEKTNAVN */}
-        <div className="flex flex-wrap items-center gap-2.5 mb-4">
+        {/* PROSJEKTNAVN — tittel på egen linje, knappene i to grupper som
+            stables under hverandre på smale skjermer i stedet for å presses
+            sammen på én linje (uten at knappene selv blir større). */}
+        <div className="flex flex-col gap-1.5 mb-4 flex-shrink-0">
           <h1 className="text-2xl font-bold text-white truncate">{session.name}</h1>
-          {!editMode && (
-            <button
-              className="btn sm flex-shrink-0"
-              onClick={() => {
-                setNameDraft(session.name);
-                // Fyller tidsplan-feltene med det som FAKTISK er lagret på
-                // prosjektet akkurat nå, i stedet for å alltid åpne tomt —
-                // det var trolig grunnen til at "planlegg starttidspunkt"
-                // fremsto som ødelagt (man så aldri hva som egentlig sto
-                // lagret fra før).
-                const parts = msToDateTimeParts(session.program_scheduled_ms);
-                setSchedDate(parts.date);
-                setSchedTime(parts.time);
-                setSettingsOpen(true);
-              }}
-            >
-              ⚙ Innstillinger
-            </button>
-          )}
-          <button
-            className={`btn sm flex-shrink-0 ${editMode ? "green" : ""}`}
-            onClick={() => setEditMode((v) => !v)}
-          >
-            {editMode ? "✓ Ferdig med redigering" : "✎ Rediger program"}
-          </button>
-
-          {/* Fjernkontroll / visningsskjerm — små knapper med Åpne/Kopier-valg,
-              øverst til høyre på samme linje. */}
-          <div className="ml-auto flex gap-1.5 flex-shrink-0" ref={linkMenuRef}>
-            <div className="relative">
-              <button
-                className="btn xs"
-                onClick={() => setLinkMenuOpen((v) => (v === "remote" ? null : "remote"))}
-                disabled={!remoteUrl}
-              >
-                Fjernkontroll
-              </button>
-              {linkMenuOpen === "remote" && (
-                <div className="absolute right-0 top-full mt-1 z-30 flex flex-col bg-[#141414] border border-[#2a2a2a] rounded-lg shadow-xl overflow-hidden min-w-[130px]">
-                  <a
-                    href={remoteUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="px-3 py-2 text-xs text-[#ddd] hover:bg-[#1c1c1c] text-left"
-                    onClick={() => setLinkMenuOpen(null)}
-                  >
-                    Åpne
-                  </a>
-                  <button
-                    className="px-3 py-2 text-xs text-[#ddd] hover:bg-[#1c1c1c] text-left"
-                    onClick={() => {
-                      copyLink("remote", remoteUrl);
-                      setLinkMenuOpen(null);
-                    }}
-                  >
-                    {copiedLink === "remote" ? "Kopiert!" : "Kopier lenke"}
-                  </button>
-                </div>
+          <div className="flex flex-col sm:flex-row sm:items-center gap-1.5">
+            <div className="flex flex-wrap gap-1.5">
+              {!editMode && (
+                <button
+                  className="btn sm flex-shrink-0"
+                  onClick={() => {
+                    setNameDraft(session.name);
+                    // Fyller tidsplan-feltene med det som FAKTISK er lagret på
+                    // prosjektet akkurat nå, i stedet for å alltid åpne tomt —
+                    // det var trolig grunnen til at "planlegg starttidspunkt"
+                    // fremsto som ødelagt (man så aldri hva som egentlig sto
+                    // lagret fra før).
+                    const parts = msToDateTimeParts(session.program_scheduled_ms);
+                    setSchedDate(parts.date);
+                    setSchedTime(parts.time);
+                    setSettingsOpen(true);
+                  }}
+                >
+                  ⚙ Innstillinger
+                </button>
               )}
+              <button
+                className={`btn sm flex-shrink-0 ${editMode ? "green" : ""}`}
+                onClick={() => setEditMode((v) => !v)}
+              >
+                {editMode ? "✓ Ferdig med redigering" : "✎ Rediger program"}
+              </button>
             </div>
-            <div className="relative">
-              <button
-                className="btn xs"
-                onClick={() => setLinkMenuOpen((v) => (v === "display" ? null : "display"))}
-                disabled={!displayUrl}
-              >
-                Visningsskjerm
-              </button>
-              {linkMenuOpen === "display" && (
-                <div className="absolute right-0 top-full mt-1 z-30 flex flex-col bg-[#141414] border border-[#2a2a2a] rounded-lg shadow-xl overflow-hidden min-w-[130px]">
-                  <a
-                    href={displayUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="px-3 py-2 text-xs text-[#ddd] hover:bg-[#1c1c1c] text-left"
-                    onClick={() => setLinkMenuOpen(null)}
-                  >
-                    Åpne
-                  </a>
-                  <button
-                    className="px-3 py-2 text-xs text-[#ddd] hover:bg-[#1c1c1c] text-left"
-                    onClick={() => {
-                      copyLink("display", displayUrl);
-                      setLinkMenuOpen(null);
-                    }}
-                  >
-                    {copiedLink === "display" ? "Kopiert!" : "Kopier lenke"}
-                  </button>
-                </div>
-              )}
+
+            {/* Fjernkontroll / visningsskjerm — små knapper med Åpne/Kopier-valg.
+                Egen gruppe, så den kan stables under hovedknappene på mobil i
+                stedet for å tvinges helt til høyre og brekke rart. */}
+            <div className="flex gap-1.5 flex-shrink-0 sm:ml-auto" ref={linkMenuRef}>
+              <div className="relative">
+                <button
+                  className="btn xs"
+                  onClick={() => setLinkMenuOpen((v) => (v === "remote" ? null : "remote"))}
+                  disabled={!remoteUrl}
+                >
+                  Fjernkontroll
+                </button>
+                {linkMenuOpen === "remote" && (
+                  <div className="absolute right-0 top-full mt-1 z-30 flex flex-col bg-[#141414] border border-[#2a2a2a] rounded-lg shadow-xl overflow-hidden min-w-[130px]">
+                    <a
+                      href={remoteUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-3 py-2 text-xs text-[#ddd] hover:bg-[#1c1c1c] text-left"
+                      onClick={() => setLinkMenuOpen(null)}
+                    >
+                      Åpne
+                    </a>
+                    <button
+                      className="px-3 py-2 text-xs text-[#ddd] hover:bg-[#1c1c1c] text-left"
+                      onClick={() => {
+                        copyLink("remote", remoteUrl);
+                        setLinkMenuOpen(null);
+                      }}
+                    >
+                      {copiedLink === "remote" ? "Kopiert!" : "Kopier lenke"}
+                    </button>
+                  </div>
+                )}
+              </div>
+              <div className="relative">
+                <button
+                  className="btn xs"
+                  onClick={() => setLinkMenuOpen((v) => (v === "display" ? null : "display"))}
+                  disabled={!displayUrl}
+                >
+                  Visningsskjerm
+                </button>
+                {linkMenuOpen === "display" && (
+                  <div className="absolute right-0 top-full mt-1 z-30 flex flex-col bg-[#141414] border border-[#2a2a2a] rounded-lg shadow-xl overflow-hidden min-w-[130px]">
+                    <a
+                      href={displayUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-3 py-2 text-xs text-[#ddd] hover:bg-[#1c1c1c] text-left"
+                      onClick={() => setLinkMenuOpen(null)}
+                    >
+                      Åpne
+                    </a>
+                    <button
+                      className="px-3 py-2 text-xs text-[#ddd] hover:bg-[#1c1c1c] text-left"
+                      onClick={() => {
+                        copyLink("display", displayUrl);
+                        setLinkMenuOpen(null);
+                      }}
+                    >
+                      {copiedLink === "display" ? "Kopiert!" : "Kopier lenke"}
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -1735,56 +1750,92 @@ export default function ControlPanel({
              Resten av kontrollpanelet (klokke, status, transport, melding
              til visningsskjerm) er bevisst ikke synlig her — dette er kun
              for å bygge opp programmet før man faktisk er i gang. */
-          <div className="w-full">{editProgramPanel}</div>
+          <div className="w-full flex-1 min-h-0 overflow-y-auto">{editProgramPanel}</div>
         ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-[2fr_1fr] gap-4 items-stretch">
-            {/* VENSTRE: PROGRAM — strekker seg nå til samme høyde som
-                kontroll-kolonnen til høyre, slik at de to boksene ender
-                nederst på samme linje (selve punktlisten scroller internt). */}
+        <div className="grid grid-cols-1 grid-rows-[minmax(0,1fr)_minmax(0,1fr)] lg:grid-cols-[2fr_1fr] lg:grid-rows-1 gap-4 flex-1 min-h-0">
+            {/* VENSTRE: PROGRAM — punktlisten scroller internt i sin egen
+                boks i stedet for at hele siden vokser/blar. */}
             {programPanel}
 
-            {/* HØYRE: KONTROLLER */}
-            <div className="flex flex-col gap-3.5">
-              {/* Klokke — nå kompakt (ingen sekunder, ikke lenger hovedelementet)
-                  med dato litt tydeligere synlig, pluss planlagt/forventet
-                  sluttidspunkt stablet under hverandre. */}
-              <div className="panel py-2.5 px-4 gap-0.5">
-                <div className="flex items-baseline justify-center gap-2">
-                  <span className="text-[22px] font-bold text-white tracking-wide tabular-nums">
-                    {now.toLocaleTimeString("no-NO", { hour: "2-digit", minute: "2-digit" })}
-                  </span>
-                  <span className="text-[11px] text-[#888] capitalize">
-                    {now.toLocaleDateString("no-NO", { weekday: "long", day: "numeric", month: "long" })}
-                  </span>
+            {/* HØYRE: KONTROLLER — hele kolonnen scroller internt (dersom
+                den ikke får plass) i stedet for at siden gjør det. ALLE felt
+                under er nå alltid synlige (viser "--:--"/"–" når det ikke
+                finnes data ennå) i stedet for å dukke opp/forsvinne — det var
+                det som fikk hele siden til å "hoppe" idet man trykket Start
+                eller sendte en melding. */}
+            <div className="flex flex-col gap-3 min-h-0 overflow-y-auto pr-0.5">
+              {/* Boks 1: Klokke — dato øverst, klokkeslett under. */}
+              <div className="panel items-center py-3 px-4 gap-0.5">
+                <span className="text-[11px] text-[#888] capitalize tracking-wide">
+                  {now.toLocaleDateString("no-NO", { weekday: "long", day: "numeric", month: "long" })}
+                </span>
+                <span className="text-[30px] font-bold text-white tracking-wide tabular-nums leading-none mt-0.5">
+                  {now.toLocaleTimeString("no-NO", { hour: "2-digit", minute: "2-digit" })}
+                </span>
+                <div className="text-[10px] text-[#555] text-center mt-1.5">
+                  Planlagt start:{" "}
+                  {session.program_scheduled_ms > 0
+                    ? new Date(session.program_scheduled_ms).toLocaleString("no-NO", {
+                        day: "numeric",
+                        month: "short",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      }) +
+                      (session.program_scheduled_ms > now.getTime()
+                        ? ` · om ${fmt(Math.round((session.program_scheduled_ms - now.getTime()) / 1000))}`
+                        : "")
+                    : "–"}
                 </div>
-                {session.program_scheduled_ms > 0 && (
-                  <div className="text-[10px] text-[#555] text-center mt-0.5">
-                    Planlagt start:{" "}
-                    {new Date(session.program_scheduled_ms).toLocaleString("no-NO", {
-                      day: "numeric",
-                      month: "short",
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
-                    {session.program_scheduled_ms > now.getTime() &&
-                      ` · om ${fmt(Math.round((session.program_scheduled_ms - now.getTime()) / 1000))}`}
-                  </div>
-                )}
-                {plannedEndMs != null && (
-                  <div className="flex flex-col items-center gap-0.5 mt-1.5 pt-1.5 border-t border-[#1e1e1e]">
-                    <span className="text-[10px] text-[#555]">Planlagt slutt: {fmtClock(plannedEndMs)}</span>
-                    <span
-                      className={`text-[10px] ${
-                        absStatus < 2 ? "text-[#555]" : liveStatus > 0 ? "text-[#f87171]" : "text-[#4ade80]"
-                      }`}
-                    >
-                      Ny tid: {fmtClock(estimatedEndMs)}
-                    </span>
-                  </div>
-                )}
               </div>
 
-              {/* Tid igjen — nå ETT felt (ikke to). Overtid vises i rødt med
+              {/* Boks 2: Planlagt slutt / Ny tid, pluss ny tidtaker for hvor
+                  mye som er igjen av HELE det planlagte programmet. */}
+              <div className="panel py-3 px-4 gap-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-[#555]">Planlagt slutt</span>
+                  <span className="text-[11px] text-[#888] font-mono tabular-nums">
+                    {plannedEndMs != null ? fmtClock(plannedEndMs) : "--:--"}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-[#555]">Ny tid</span>
+                  <span
+                    className={`text-[11px] font-mono font-semibold tabular-nums ${
+                      estimatedEndMs == null
+                        ? "text-[#555]"
+                        : absStatus < 2
+                        ? "text-[#888]"
+                        : liveStatus > 0
+                        ? "text-[#f87171]"
+                        : "text-[#4ade80]"
+                    }`}
+                  >
+                    {estimatedEndMs != null ? fmtClock(estimatedEndMs) : "--:--"}
+                  </span>
+                </div>
+                <div className="border-t border-[#1e1e1e] pt-2 flex flex-col items-center">
+                  <span className="text-[9px] text-[#555] uppercase tracking-wider mb-0.5">
+                    Tid igjen av programmet
+                  </span>
+                  <span
+                    className={`text-[26px] font-bold tabular-nums leading-none ${
+                      programRemainingSecs == null
+                        ? "text-[#333]"
+                        : programRemainingSecs < 0
+                        ? "text-[#f87171]"
+                        : programRemainingSecs <= 60
+                        ? "text-[#fde68a]"
+                        : "text-[#4ade80]"
+                    }`}
+                  >
+                    {programRemainingSecs == null
+                      ? "--:--"
+                      : (programRemainingSecs < 0 ? "+" : "") + fmt(Math.abs(programRemainingSecs))}
+                  </span>
+                </div>
+              </div>
+
+              {/* Tid igjen (aktivt punkt) — ETT felt. Overtid vises i rødt med
                   "+" rett i dette feltet i stedet for en egen "Overtid"-boks. */}
               <div className="sc">
                 <div className="sc-label">Tid igjen</div>
@@ -1806,7 +1857,7 @@ export default function ControlPanel({
                 <div className="sc-sub">{session.active_label || "—"}</div>
               </div>
 
-              <div className="flex items-center justify-between bg-[#080808] border border-[#1e1e1e] rounded-lg px-3.5 py-2.5">
+              <div className="flex items-center justify-between bg-[#080808] border border-[#1e1e1e] rounded-lg px-3.5 py-2.5 flex-shrink-0">
                 <span className="status-label">Status</span>
                 <span
                   className={`status-pill ${
@@ -1822,7 +1873,7 @@ export default function ControlPanel({
               </div>
 
               {/* Transport */}
-              <div className="panel gap-2.5">
+              <div className="panel gap-2.5 flex-shrink-0">
                 <div className="ptitle">Panel</div>
                 <div className="grid grid-cols-3 gap-2">
                   <button className="t-btn t-start" onClick={startTimer} disabled={session.running}>
@@ -1851,22 +1902,26 @@ export default function ControlPanel({
               </div>
 
               {/* Melding */}
-              <div className="panel">
+              <div className="panel flex-shrink-0">
                 <div className="ptitle">Melding til visningsskjerm</div>
                 {/* Fast høyde reservert her uansett — uten dette hoppet hele
                     siden merkbart hver gang en melding ble sendt/fjernet,
-                    siden denne boksen bare dukket opp/forsvant fullstendig. */}
-                <div className="min-h-[44px] mb-0.5">
+                    siden denne boksen bare dukket opp/forsvant fullstendig.
+                    line-clamp begrenser hvor mye en lang melding kan vokse
+                    boksen, slik at "hoppet" blir minimalt uansett meldingslengde. */}
+                <div className="min-h-[56px] mb-0.5">
                   {session.message && (
                     <div className="flex items-start gap-2 bg-[#0d1f0d] border border-[#1a4a1a] rounded-lg px-2.5 py-2">
-                      <div className="flex-1">
+                      <div className="flex-1 min-w-0">
                         <div className="text-[9px] font-bold text-[#1a4a1a] uppercase tracking-wider mb-0.5">
                           Aktiv melding
                         </div>
-                        <div className="text-xs text-[#4ade80] italic">{session.message}</div>
+                        <div className="text-xs text-[#4ade80] italic line-clamp-2 break-words">
+                          {session.message}
+                        </div>
                       </div>
                       <button
-                        className="text-[#2a4a2a] text-sm px-1"
+                        className="text-[#2a4a2a] text-sm px-1 flex-shrink-0"
                         onClick={clearMsg}
                         aria-label="Fjern melding"
                       >

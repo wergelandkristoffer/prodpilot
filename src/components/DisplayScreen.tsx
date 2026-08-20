@@ -201,20 +201,66 @@ export default function DisplayScreen({ sessionId }: { sessionId: string }) {
               : "border-[#4ade80]/50 text-[#4ade80] bg-[#0a1f0a]/60"
           }`}
         >
-          {absStatus < 2 ? "På tid" : (liveStatus > 0 ? "Forsinket +" : "Foran -") + fmt(absStatus)}
+          {absStatus < 2 ? "0:00" : (liveStatus > 0 ? "+" : "-") + fmt(absStatus)}
         </div>
       )}
 
       {upcoming.length > 0 && (
-        <div className="flex flex-col items-center gap-3 mt-4">
+        <div className="flex flex-col items-center gap-3 mt-4 w-full">
           <span className="text-[10px] uppercase tracking-widest text-white/40">
             Neste på programmet
           </span>
-          {/* CSS Grid med tre LIKE brede kolonner (ikke flex) — slik havner
-              midtre punkt alltid midt på skjermen, uansett hvor lang tekst
-              nabo-punktene har. Ubrukte kolonner (færre enn 3 kommende
-              punkter) står bare tomme. */}
-          <div className="grid grid-cols-3 gap-4 md:gap-8 w-full max-w-4xl">
+
+          {/* MOBIL: vertikal liste (samme mønster som "Programoversikt" i
+              fjernkontrollen) i stedet for tre kolonner som overlapper
+              hverandre på smale skjermer. */}
+          <div className="flex md:hidden flex-col gap-2 w-full max-w-sm px-2">
+            {upcoming.map(({ item, clock, plannedMs }, i) => {
+              const driftSecs = hasActive ? liveStatus : 0;
+              const newMs = plannedMs != null ? plannedMs + driftSecs * 1000 : null;
+              const newClock = newMs != null ? fmtClock(newMs) : "";
+              const showNewClock = !!clock && !!newClock && newClock !== clock;
+              const isLate = driftSecs > 0;
+              return (
+                <div
+                  key={item.id}
+                  className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 opacity-80"
+                >
+                  <span className="text-[10px] text-white/40 font-mono w-3 flex-shrink-0 text-center">
+                    {i + 1}
+                  </span>
+                  <span
+                    className="w-2 h-2 rounded-full flex-shrink-0"
+                    style={{ background: item.color }}
+                  />
+                  <span className="text-sm font-medium truncate flex-1 min-w-0">{item.name}</span>
+                  <span className="flex flex-col items-end gap-0.5 flex-shrink-0">
+                    {clock && (
+                      <span className="text-[10px] text-white/40 font-mono">Kl. {clock}</span>
+                    )}
+                    {showNewClock && (
+                      <span
+                        className={`text-[10px] font-mono rounded px-1 ${
+                          isLate ? "text-[#f87171]" : "text-[#4ade80]"
+                        }`}
+                      >
+                        <span className="font-normal opacity-80">Ny tid </span>
+                        <span className="font-bold">{newClock}</span>
+                      </span>
+                    )}
+                    <span className="text-[9px] text-white/30 font-mono">{fmt(item.duration_secs)}</span>
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* DESKTOP: CSS Grid med tre LIKE brede kolonner (ikke flex) — slik
+              havner midtre punkt alltid midt på skjermen, uansett hvor lang
+              tekst nabo-punktene har. Ubrukte kolonner (færre enn 3 kommende
+              punkter) står bare tomme. Tid/Ny tid står nå OVER navnet, og
+              varigheten UNDER — i stedet for at alt lå under navnet. */}
+          <div className="hidden md:grid grid-cols-3 gap-4 md:gap-8 w-full max-w-4xl">
             {[0, 1, 2].map((i) => {
               const entry = upcoming[i];
               if (!entry) return <div key={i} />;
@@ -237,25 +283,29 @@ export default function DisplayScreen({ sessionId }: { sessionId: string }) {
                     className="w-2 h-2 rounded-full"
                     style={{ background: item.color }}
                   />
-                  <span className="text-base md:text-xl font-medium text-center max-w-[220px] truncate">
-                    {item.name}
-                  </span>
                   {clock && (
                     <div className="flex items-center gap-1.5 mt-0.5">
                       <span className="text-xs md:text-sm text-white/40 font-mono">Kl. {clock}</span>
                       {showNewClock && (
                         <span
-                          className={`text-[10px] md:text-xs font-mono font-semibold rounded px-1.5 py-0.5 border ${
+                          className={`text-[10px] md:text-xs font-mono rounded px-1.5 py-0.5 border ${
                             isLate
                               ? "text-[#f87171] bg-[#2a0a0a] border-[#4a1515]"
                               : "text-[#4ade80] bg-[#0a1f0a] border-[#1a4a2a]"
                           }`}
                         >
-                          Ny tid {newClock}
+                          <span className="font-normal opacity-80">Ny tid </span>
+                          <span className="font-bold">{newClock}</span>
                         </span>
                       )}
                     </div>
                   )}
+                  <span className="text-base md:text-xl font-medium text-center max-w-[220px] truncate">
+                    {item.name}
+                  </span>
+                  <span className="text-[10px] md:text-xs text-white/40 font-mono">
+                    {fmt(item.duration_secs)}
+                  </span>
                 </div>
               );
             })}

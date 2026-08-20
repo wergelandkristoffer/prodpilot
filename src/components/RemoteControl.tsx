@@ -7,11 +7,11 @@ import { fmt, fmtClock, calcRemaining } from "@/lib/timer";
 import { useLiveRemaining } from "@/hooks/useLiveRemaining";
 import SupabaseSetupNotice from "@/components/SupabaseSetupNotice";
 
-function PauseIcon() {
+function PauseIcon({ size = 12 }: { size?: number }) {
   return (
     <svg
-      width="12"
-      height="12"
+      width={size}
+      height={size}
       viewBox="0 0 24 24"
       fill="currentColor"
       className="inline-block"
@@ -23,12 +23,57 @@ function PauseIcon() {
   );
 }
 
+function PlayIcon({ size = 12 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      className="inline-block"
+      aria-hidden="true"
+    >
+      <path d="M6 3.5c0-1.05 1.15-1.7 2.05-1.15l12.4 7.5c.87.52.87 1.78 0 2.3l-12.4 7.5C7.15 20.2 6 19.55 6 18.5V3.5Z" />
+    </svg>
+  );
+}
+
+/** Enkel hengelås — brukes til å låse/åpne opp for at man kan trykke på
+ * punktene i programoversikten, slik at man ikke hopper til feil punkt ved et
+ * uhell. Bevisst SVG (ikke emoji), som resten av ikonsettet i appen. */
+function LockIcon({ locked, size = 12 }: { locked: boolean; size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="inline-block"
+      aria-hidden="true"
+    >
+      <rect x="4" y="11" width="16" height="9" rx="2" />
+      {locked ? (
+        <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+      ) : (
+        <path d="M8 11V7a4 4 0 0 1 7.5-2" />
+      )}
+    </svg>
+  );
+}
+
 export default function RemoteControl({ sessionId }: { sessionId: string }) {
   const [session, setSession] = useState<SessionRow | null>(null);
   const [agenda, setAgenda] = useState<AgendaItemRow[]>([]);
   const [notFound, setNotFound] = useState(false);
   const [msgInput, setMsgInput] = useState("");
   const [msgPopupOpen, setMsgPopupOpen] = useState(false);
+  // Låst som standard — hindrer at man hopper til feil punkt i programmet
+  // ved et uhellstrykk. Må aktivt låses opp for å kunne trykke seg til et punkt.
+  const [itemsLocked, setItemsLocked] = useState(true);
 
   const fetchAgenda = useCallback(async () => {
     const { data } = await supabase
@@ -247,8 +292,8 @@ export default function RemoteControl({ sessionId }: { sessionId: string }) {
   const estimatedEndMs = plannedEndMs != null ? plannedEndMs + liveStatus * 1000 : null;
 
   return (
-    <div className="min-h-screen w-full overflow-x-hidden bg-[#080808] text-[#d8d8d8] p-4 pb-8 flex flex-col gap-3 max-w-md mx-auto">
-      <div className="flex items-center justify-between">
+    <div className="h-dvh w-full overflow-hidden bg-[#080808] text-[#d8d8d8] p-4 flex flex-col gap-3 max-w-md mx-auto">
+      <div className="flex items-center justify-between flex-shrink-0">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/prodpilot-logo.png" alt="ProdPilot" className="h-5 w-auto" />
         <span className="text-[10px] font-semibold rounded-full border border-[#1a3a6a] bg-[#080f20] text-[#93c5fd] px-2.5 py-0.5">
@@ -256,7 +301,7 @@ export default function RemoteControl({ sessionId }: { sessionId: string }) {
         </span>
       </div>
 
-      <div className="rounded-2xl border border-[#1e1e1e] bg-[#0e0e0e] p-5 flex flex-col items-center gap-2 text-center">
+      <div className="rounded-2xl border border-[#1e1e1e] bg-[#0e0e0e] p-5 flex flex-col items-center gap-2 text-center flex-shrink-0">
         {session.active_section && (
           <div className="text-[10px] uppercase tracking-[0.2em] text-[#555]">{session.active_section}</div>
         )}
@@ -279,28 +324,32 @@ export default function RemoteControl({ sessionId }: { sessionId: string }) {
                 : "border-[#1a4a2a] text-[#4ade80] bg-[#0a1f0a]"
             }`}
           >
-            {absStatus < 2 ? "På tid" : (liveStatus > 0 ? "Forsinket +" : "Foran -") + fmt(absStatus)}
+            {absStatus < 2 ? "0:00" : (liveStatus > 0 ? "+" : "-") + fmt(absStatus)}
           </span>
         )}
       </div>
 
-      <div className="grid grid-cols-3 gap-2">
+      {/* Start/Pause er nå kun ikoner, helt til venstre — Neste er større og
+          tar resten av plassen, siden det er den man trykker på oftest. */}
+      <div className="flex items-center gap-2 flex-shrink-0">
         <button
-          className="rounded-xl border border-[#1a4a2a] bg-[#0d2e1a] text-[#4ade80] font-semibold py-4 text-sm disabled:opacity-25"
+          className="rounded-xl border border-[#1a4a2a] bg-[#0d2e1a] text-[#4ade80] disabled:opacity-25 w-14 h-14 flex-shrink-0 flex items-center justify-center"
           onClick={startTimer}
           disabled={session.running}
+          aria-label="Start"
         >
-          ▶ Start
+          <PlayIcon size={20} />
         </button>
         <button
-          className="rounded-xl border border-[#1e3a70] bg-[#0d1f40] text-[#93c5fd] font-semibold py-4 text-sm disabled:opacity-25 flex items-center justify-center gap-1.5"
+          className="rounded-xl border border-[#1e3a70] bg-[#0d1f40] text-[#93c5fd] disabled:opacity-25 w-14 h-14 flex-shrink-0 flex items-center justify-center"
           onClick={pauseTimer}
           disabled={!session.running}
+          aria-label="Pause"
         >
-          <PauseIcon /> Pause
+          <PauseIcon size={18} />
         </button>
         <button
-          className="rounded-xl border border-[#2563eb] bg-[#0d1f40] text-[#93c5fd] font-semibold py-4 text-sm disabled:opacity-25"
+          className="flex-1 rounded-xl border border-[#2563eb] bg-[#0d1f40] text-[#93c5fd] font-bold py-4 text-base disabled:opacity-25"
           onClick={nextItem}
           disabled={nextIdx < 0}
         >
@@ -312,12 +361,15 @@ export default function RemoteControl({ sessionId }: { sessionId: string }) {
           alltid synlig felt) — sparer mye plass på en liten skjerm. Når en
           melding er aktiv, vises en liten grønn indikator man kan trykke på
           for å fjerne den direkte, uten å åpne pop-upen. */}
-      <div className="flex items-center gap-2">
+      {/* Emoji fjernet fra knappen (utløste zoom på iOS via meldings-pop-upen
+          under). Begge knappene har nå eksplisitt lik høyde i stedet for å
+          stole på at padding gir samme resultat for begge. */}
+      <div className="flex items-center gap-2 flex-shrink-0">
         <button
-          className="flex-1 rounded-xl border border-[#1e1e1e] bg-[#0e0e0e] text-[#93c5fd] text-xs font-semibold py-3 px-4 text-left flex items-center gap-2"
+          className="flex-1 h-12 rounded-xl border border-[#1e1e1e] bg-[#0e0e0e] text-[#93c5fd] text-xs font-semibold px-4 text-left flex items-center gap-2"
           onClick={() => setMsgPopupOpen(true)}
         >
-          ✉ Melding til visningsskjerm
+          Melding til visningsskjerm
           {session.message && (
             <span className="ml-auto text-[#4ade80] text-[10px] italic truncate max-w-[120px]">
               {session.message}
@@ -326,7 +378,7 @@ export default function RemoteControl({ sessionId }: { sessionId: string }) {
         </button>
         {session.message && (
           <button
-            className="flex-shrink-0 rounded-xl border border-[#1a4a1a] bg-[#0d1f0d] text-[#4ade80] text-sm px-3.5 py-3"
+            className="flex-shrink-0 h-12 w-12 rounded-xl border border-[#1a4a1a] bg-[#0d1f0d] text-[#4ade80] text-sm flex items-center justify-center"
             onClick={clearMsg}
             title="Fjern meldingen"
           >
@@ -355,9 +407,13 @@ export default function RemoteControl({ sessionId }: { sessionId: string }) {
                 ×
               </button>
             </div>
+            {/* text-base (16px) er bevisst — Safari på iPhone zoomer automatisk
+                inn på et felt som får fokus hvis skriftstørrelsen er under
+                16px. Det var trolig det brukeren opplevde som "zoomer inn for
+                å fylle ut knappen" idet pop-upen åpnet seg og feltet fikk fokus. */}
             <textarea
               autoFocus
-              className="bg-[#080808] border border-[#2a2a2a] rounded-md text-[#d8d8d8] text-sm p-2.5"
+              className="bg-[#080808] border border-[#2a2a2a] rounded-md text-[#d8d8d8] text-base p-2.5"
               rows={3}
               placeholder="Skriv en melding…"
               value={msgInput}
@@ -387,12 +443,27 @@ export default function RemoteControl({ sessionId }: { sessionId: string }) {
         </div>
       )}
 
-      <div className="rounded-2xl border border-[#1e1e1e] bg-[#0e0e0e] p-4 flex flex-col gap-1">
-        <div className="text-[9px] font-bold text-[#555] uppercase tracking-wider mb-1">Programoversikt</div>
+      <div className="rounded-2xl border border-[#1e1e1e] bg-[#0e0e0e] p-4 flex flex-col gap-1 flex-1 min-h-0">
+        <div className="flex items-center justify-between mb-1 flex-shrink-0">
+          <div className="text-[9px] font-bold text-[#555] uppercase tracking-wider">Programoversikt</div>
+          {/* Lås/lås opp — hindrer at man hopper til feil punkt ved et
+              uhellstrykk. Låst er standard. */}
+          <button
+            onClick={() => setItemsLocked((v) => !v)}
+            className={`flex items-center gap-1 text-[9px] font-semibold px-2 py-1 rounded-full border ${
+              itemsLocked
+                ? "border-[#2a2a2a] text-[#666] bg-[#141414]"
+                : "border-[#4a1515] text-[#f87171] bg-[#1a0808]"
+            }`}
+          >
+            <LockIcon locked={itemsLocked} size={10} />
+            {itemsLocked ? "Låst" : "Ulåst"}
+          </button>
+        </div>
         {/* Planlagt sluttidspunkt + justert anslag — utenfor scroll-området
             under, slik at den blir stående selv om man blar i punktene. */}
         {plannedEndMs != null && (
-          <div className="flex items-center justify-between text-[10px] text-[#555] pb-2 mb-1 border-b border-[#1e1e1e]">
+          <div className="flex items-center justify-between text-[10px] text-[#555] pb-2 mb-1 border-b border-[#1e1e1e] flex-shrink-0">
             <span>Planlagt slutt: {fmtClock(plannedEndMs)}</span>
             <span
               className={
@@ -403,7 +474,7 @@ export default function RemoteControl({ sessionId }: { sessionId: string }) {
             </span>
           </div>
         )}
-        <div className="flex flex-col gap-1 max-h-[40vh] overflow-y-auto">
+        <div className="flex flex-col gap-1 flex-1 min-h-0 overflow-y-auto">
           {agenda.length === 0 && <div className="text-xs text-[#444]">Ingen punkter enda.</div>}
           {agenda.map((item, i) => {
             if (item.is_section) {
@@ -423,7 +494,8 @@ export default function RemoteControl({ sessionId }: { sessionId: string }) {
               <button
                 key={item.id}
                 onClick={() => loadItem(i)}
-                className={`flex items-center gap-2 rounded-md px-2.5 py-2 text-left text-xs ${
+                disabled={itemsLocked}
+                className={`flex items-center gap-2 rounded-md px-2.5 py-2 text-left text-xs disabled:cursor-default ${
                   i === activeIdx
                     ? "bg-[#080f18] border border-[#2563eb] text-white"
                     : activeIdx >= 0 && i < activeIdx
