@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase";
 import { AgendaItemRow, SessionRow } from "@/lib/types";
-import { fmt, fmtClock } from "@/lib/timer";
+import { fmt, fmtClock, fmtDuration } from "@/lib/timer";
 import { useLiveRemaining } from "@/hooks/useLiveRemaining";
 import SupabaseSetupNotice from "@/components/SupabaseSetupNotice";
 
@@ -179,14 +179,12 @@ export default function DisplayScreen({ sessionId }: { sessionId: string }) {
         {hasActive ? session.active_label : "Venter på start…"}
       </div>
 
+      {/* Farges ALDRI etter punktets/bolkens egen farge lenger — kun hvit
+          (normalt) og rødt (overtid), som resten av tidtakerne i appen. */}
       <div
         className={`font-bold tabular-nums leading-none text-[18vw] md:text-[220px] ${
-          isOvertime ? "text-[#f87171]" : absRem <= 60 && hasActive ? "text-[#fde68a]" : "text-white"
+          isOvertime ? "text-[#f87171]" : "text-white"
         }`}
-        // `active_color` skal KUN style tallet mens vi er innenfor tiden —
-        // den inline-fargen overstyrte tidligere alltid overtid-rødt, siden
-        // en active_color alltid er satt mens punktet fortsatt er aktivt.
-        style={{ color: hasActive && !isOvertime ? session.active_color : undefined }}
       >
         {hasActive ? (isOvertime ? "+" : "") + fmt(absRem) : "--:--"}
       </div>
@@ -248,7 +246,7 @@ export default function DisplayScreen({ sessionId }: { sessionId: string }) {
                         <span className="font-bold">{newClock}</span>
                       </span>
                     )}
-                    <span className="text-[9px] text-white/30 font-mono">{fmt(item.duration_secs)}</span>
+                    <span className="text-[9px] text-white/30 font-mono">{fmtDuration(item.duration_secs)}</span>
                   </span>
                 </div>
               );
@@ -304,7 +302,7 @@ export default function DisplayScreen({ sessionId }: { sessionId: string }) {
                     {item.name}
                   </span>
                   <span className="text-[10px] md:text-xs text-white/40 font-mono">
-                    {fmt(item.duration_secs)}
+                    {fmtDuration(item.duration_secs)}
                   </span>
                 </div>
               );

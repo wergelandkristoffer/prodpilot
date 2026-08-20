@@ -8,7 +8,7 @@ import SupabaseSetupNotice from "@/components/SupabaseSetupNotice";
 import ProjectSidebar, { ProjectOption } from "@/components/ProjectSidebar";
 import ProjectSettingsModal from "@/components/ProjectSettingsModal";
 import { COLORS, SessionRow } from "@/lib/types";
-import { fmt, fmtClock, calcRemaining } from "@/lib/timer";
+import { fmt, fmtClock, fmtDuration, calcRemaining } from "@/lib/timer";
 import { useLiveRemaining } from "@/hooks/useLiveRemaining";
 
 // ── LOKAL AGENDA-MODELL ──────────────────────────────────────
@@ -1157,10 +1157,13 @@ export default function ControlPanel({
     programAnchorMs && totalProgramSecs > 0 ? programAnchorMs + totalProgramSecs * 1000 : null;
   const estimatedEndMs = plannedEndMs != null ? plannedEndMs + liveStatus * 1000 : null;
   // Ny tidtaker: hvor mye tid som er igjen av HELE det planlagte programmet
-  // (ikke bare det aktive punktet). Negativt tall (etter planlagt sluttid)
-  // vises som overtid i rødt, akkurat som de andre tidtakerne.
+  // (ikke bare det aktive punktet). Regnes mot `estimatedEndMs` (justert med
+  // gjeldende avvik), IKKE den opprinnelige faste `plannedEndMs` — slik at
+  // tallet faktisk endrer seg etter hvert som man ligger foran/bak planen,
+  // ikke bare teller ned mot et tall som aldri flytter seg. Negativt tall
+  // (etter forventet sluttid) vises som overtid i rødt.
   const programRemainingSecs =
-    plannedEndMs != null ? Math.round((plannedEndMs - now.getTime()) / 1000) : null;
+    estimatedEndMs != null ? Math.round((estimatedEndMs - now.getTime()) / 1000) : null;
 
   // Punktlisten er en funksjon (ikke en fast variabel) slik at den kan
   // gjenbrukes med ulik makshøyde i vanlig visning vs. "Rediger program".
@@ -1764,15 +1767,66 @@ export default function ControlPanel({
                 det som fikk hele siden til å "hoppe" idet man trykket Start
                 eller sendte en melding. */}
             <div className="flex flex-col gap-3 min-h-0 overflow-y-auto pr-0.5">
-              {/* Boks 1: Klokke — dato øverst, klokkeslett under. */}
-              <div className="panel items-center py-3 px-4 gap-0.5">
-                <span className="text-[11px] text-[#888] capitalize tracking-wide">
-                  {now.toLocaleDateString("no-NO", { weekday: "long", day: "numeric", month: "long" })}
-                </span>
-                <span className="text-[30px] font-bold text-white tracking-wide tabular-nums leading-none mt-0.5">
-                  {now.toLocaleTimeString("no-NO", { hour: "2-digit", minute: "2-digit" })}
-                </span>
-                <div className="text-[10px] text-[#555] text-center mt-1.5">
+              {/* Slått sammen til ÉN boks: klokkeslett til venstre, resten
+                  (planlagt slutt / ny tid / tid igjen av programmet) til
+                  høyre — i stedet for to separate bokser. */}
+              <div className="panel py-3 px-4 gap-1.5 flex-shrink-0">
+                <div className="flex items-center gap-3">
+                  <div className="flex flex-col items-center flex-shrink-0 pr-3 border-r border-[#1e1e1e]">
+                    <span className="text-[10px] text-[#888] capitalize tracking-wide whitespace-nowrap">
+                      {now.toLocaleDateString("no-NO", { weekday: "long", day: "numeric", month: "long" })}
+                    </span>
+                    <span className="text-[26px] font-bold text-white tracking-wide tabular-nums leading-none mt-0.5">
+                      {now.toLocaleTimeString("no-NO", { hour: "2-digit", minute: "2-digit" })}
+                    </span>
+                  </div>
+                  <div className="flex flex-col gap-1.5 flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[10px] text-[#555] flex-shrink-0">Planlagt slutt</span>
+                      <span className="text-[11px] text-[#888] font-mono tabular-nums">
+                        {plannedEndMs != null ? fmtClock(plannedEndMs) : "--:--"}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[10px] text-[#555] flex-shrink-0">Ny tid</span>
+                      <span
+                        className={`text-[11px] font-mono font-semibold tabular-nums ${
+                          estimatedEndMs == null
+                            ? "text-[#555]"
+                            : absStatus < 2
+                            ? "text-[#888]"
+                            : liveStatus > 0
+                            ? "text-[#f87171]"
+                            : "text-[#4ade80]"
+                        }`}
+                      >
+                        {estimatedEndMs != null ? fmtClock(estimatedEndMs) : "--:--"}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between gap-2 border-t border-[#1e1e1e] pt-1.5">
+                      <span className="text-[9px] text-[#555] uppercase tracking-wider flex-shrink-0">
+                        Program igjen
+                      </span>
+                      {/* Ingen gul/grønn fargeskala her lenger — kun hvit
+                          (normalt) og rødt (overtid), samme regel som resten
+                          av tidtakerne i appen. */}
+                      <span
+                        className={`text-[15px] font-bold font-mono tabular-nums ${
+                          programRemainingSecs == null
+                            ? "text-[#555]"
+                            : programRemainingSecs < 0
+                            ? "text-[#f87171]"
+                            : "text-white"
+                        }`}
+                      >
+                        {programRemainingSecs == null
+                          ? "--:--"
+                          : (programRemainingSecs < 0 ? "+" : "") + fmt(Math.abs(programRemainingSecs))}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+                <div className="text-[9px] text-[#555] text-center pt-1.5 mt-0.5 border-t border-[#1e1e1e]">
                   Planlagt start:{" "}
                   {session.program_scheduled_ms > 0
                     ? new Date(session.program_scheduled_ms).toLocaleString("no-NO", {
@@ -1788,73 +1842,31 @@ export default function ControlPanel({
                 </div>
               </div>
 
-              {/* Boks 2: Planlagt slutt / Ny tid, pluss ny tidtaker for hvor
-                  mye som er igjen av HELE det planlagte programmet. */}
-              <div className="panel py-3 px-4 gap-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] text-[#555]">Planlagt slutt</span>
-                  <span className="text-[11px] text-[#888] font-mono tabular-nums">
-                    {plannedEndMs != null ? fmtClock(plannedEndMs) : "--:--"}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] text-[#555]">Ny tid</span>
-                  <span
-                    className={`text-[11px] font-mono font-semibold tabular-nums ${
-                      estimatedEndMs == null
-                        ? "text-[#555]"
-                        : absStatus < 2
-                        ? "text-[#888]"
-                        : liveStatus > 0
-                        ? "text-[#f87171]"
-                        : "text-[#4ade80]"
-                    }`}
-                  >
-                    {estimatedEndMs != null ? fmtClock(estimatedEndMs) : "--:--"}
-                  </span>
-                </div>
-                <div className="border-t border-[#1e1e1e] pt-2 flex flex-col items-center">
-                  <span className="text-[9px] text-[#555] uppercase tracking-wider mb-0.5">
-                    Tid igjen av programmet
-                  </span>
-                  <span
-                    className={`text-[26px] font-bold tabular-nums leading-none ${
-                      programRemainingSecs == null
-                        ? "text-[#333]"
-                        : programRemainingSecs < 0
-                        ? "text-[#f87171]"
-                        : programRemainingSecs <= 60
-                        ? "text-[#fde68a]"
-                        : "text-[#4ade80]"
-                    }`}
-                  >
-                    {programRemainingSecs == null
-                      ? "--:--"
-                      : (programRemainingSecs < 0 ? "+" : "") + fmt(Math.abs(programRemainingSecs))}
-                  </span>
-                </div>
-              </div>
-
-              {/* Tid igjen (aktivt punkt) — ETT felt. Overtid vises i rødt med
-                  "+" rett i dette feltet i stedet for en egen "Overtid"-boks. */}
-              <div className="sc">
-                <div className="sc-label">Tid igjen</div>
+              {/* Tidtaker (aktivt punkt) — tiden venstrestilt, tekst/navn
+                  høyrestilt. Kun hvit (normalt) og rødt (overtid) — farges
+                  ALDRI etter posten/bolkens egen farge lenger. */}
+              <div className="sc flex items-center justify-between gap-3 flex-shrink-0">
                 <div
-                  className={`sc-val lg ${
+                  className={`sc-val lg leading-none ${
                     activeIdx < 0 && !session.running && session.total_secs === 0
                       ? "text-[#333]"
                       : isOvertime
                       ? "text-[#f87171]"
-                      : absRem <= 60
-                      ? "text-[#fde68a]"
-                      : "text-[#4ade80]"
+                      : "text-white"
                   }`}
                 >
                   {activeIdx < 0 && !session.running && session.total_secs === 0
                     ? "--:--"
                     : (isOvertime ? "+" : "") + fmt(isOvertime ? Math.abs(rem) : absRem)}
                 </div>
-                <div className="sc-sub">{session.active_label || "—"}</div>
+                <div className="flex flex-col items-end text-right min-w-0 gap-0.5">
+                  <span className="text-[9px] font-bold text-[#555] uppercase tracking-wider">
+                    Tidtaker
+                  </span>
+                  <span className="text-[13px] font-medium text-[#bbb] truncate max-w-[150px]">
+                    {session.active_label || "—"}
+                  </span>
+                </div>
               </div>
 
               <div className="flex items-center justify-between bg-[#080808] border border-[#1e1e1e] rounded-lg px-3.5 py-2.5 flex-shrink-0">
@@ -1896,7 +1908,7 @@ export default function ControlPanel({
                 </div>
                 {nextItemData && (
                   <div className="next-hint">
-                    Neste: {nextItemData.name} ({fmt(nextItemData.duration_secs)})
+                    Neste: {nextItemData.name} ({fmtDuration(nextItemData.duration_secs)})
                   </div>
                 )}
               </div>
@@ -2170,7 +2182,7 @@ function itemSum(agenda: LocalItem[], sectionIdx: number): string {
   for (let j = sectionIdx + 1; j < agenda.length && !agenda[j].is_section; j++) {
     secs += agenda[j].duration_secs;
   }
-  return secs > 0 ? fmt(secs) : "";
+  return secs > 0 ? fmtDuration(secs) : "";
 }
 
 function ColorRow({ value, onChange }: { value: string; onChange: (c: string) => void }) {
@@ -2281,7 +2293,7 @@ function AgendaRow({
             )}
           </span>
         )}
-        <span className="text-[10px] text-[#3a3a3a] font-mono flex-shrink-0">{fmt(item.duration_secs)}</span>
+        <span className="text-[10px] text-[#3a3a3a] font-mono flex-shrink-0">{fmtDuration(item.duration_secs)}</span>
         <div className="flex gap-0.5 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
           <button className="btn xs" onClick={() => moveUp(i)}>↑</button>
           <button className="btn xs" onClick={() => moveDown(i)}>↓</button>

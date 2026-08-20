@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase";
 import { AgendaItemRow, SessionRow } from "@/lib/types";
-import { fmt, fmtClock, calcRemaining } from "@/lib/timer";
+import { fmt, fmtClock, fmtDuration, calcRemaining } from "@/lib/timer";
 import { useLiveRemaining } from "@/hooks/useLiveRemaining";
 import SupabaseSetupNotice from "@/components/SupabaseSetupNotice";
 
@@ -306,11 +306,12 @@ export default function RemoteControl({ sessionId }: { sessionId: string }) {
           <div className="text-[10px] uppercase tracking-[0.2em] text-[#555]">{session.active_section}</div>
         )}
         <div className="text-lg font-semibold text-white">{hasActive ? session.active_label : "Ingen aktiv"}</div>
+        {/* Farges ALDRI etter punktets/bolkens egen farge lenger — kun hvit
+            (normalt) og rødt (overtid), som resten av tidtakerne i appen. */}
         <div
-          className={`text-6xl font-bold tabular-nums ${isOvertime ? "text-[#f87171]" : !hasActive ? "text-[#333]" : ""}`}
-          // `active_color` skal kun style tallet innenfor tiden — under
-          // overtid skal det alltid være rødt (se samme fiks i DisplayScreen).
-          style={{ color: hasActive && !isOvertime ? session.active_color : undefined }}
+          className={`text-6xl font-bold tabular-nums ${
+            isOvertime ? "text-[#f87171]" : hasActive ? "text-white" : "text-[#333]"
+          }`}
         >
           {hasActive ? (isOvertime ? "+" : "") + fmt(absRem) : "--:--"}
         </div>
@@ -506,7 +507,7 @@ export default function RemoteControl({ sessionId }: { sessionId: string }) {
                 <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: item.color }} />
                 <span className="flex-1 truncate">{item.name}</span>
                 <span className="flex flex-col items-end gap-0.5 flex-shrink-0">
-                  <span className="text-[10px] text-[#444] font-mono">{fmt(item.duration_secs)}</span>
+                  <span className="text-[10px] text-[#444] font-mono">{fmtDuration(item.duration_secs)}</span>
                   {plannedClock && (
                     <span className="text-[9px] font-mono text-[#555]">
                       Kl. {plannedClock}

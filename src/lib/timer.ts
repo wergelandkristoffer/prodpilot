@@ -24,6 +24,21 @@ export function calcRemaining(t: TimerLike): number {
   return t.paused_rem - (Date.now() - startedAtMs) / 1000;
 }
 
+/** Formaterer en VARIGHET (ikke en nedtelling/klokke) som "15 min og 20
+ * sekunder", eller bare "1 min"/"45 sekunder" når den andre delen er 0 —
+ * brukt der appen viser hvor LANGT et punkt er (neste-hint, programoversikt,
+ * visningsskjermens kommende-punkter), til forskjell fra `fmt()` sitt
+ * mm:ss-format som brukes til faktiske nedtellinger/klokker. */
+export function fmtDuration(secondsInput: number): string {
+  const s = Math.max(0, Math.round(secondsInput));
+  const min = Math.floor(s / 60);
+  const sec = s % 60;
+  const secLabel = `${sec} sekund${sec === 1 ? "" : "er"}`;
+  if (min === 0) return secLabel;
+  if (sec === 0) return `${min} min`;
+  return `${min} min og ${secLabel}`;
+}
+
 export function fmtClock(ms: number | null | undefined): string {
   if (!ms) return "";
   return new Date(ms).toLocaleTimeString("no-NO", {
