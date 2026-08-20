@@ -156,7 +156,9 @@ export default function DisplayScreen({ sessionId }: { sessionId: string }) {
 
   return (
     <div
-      className={`min-h-screen ${BG_THEMES[session.bg]} text-white flex flex-col items-center justify-center gap-8 px-10 py-12 relative transition-colors duration-500`}
+      className={`min-h-screen w-full overflow-x-hidden ${BG_THEMES[session.bg]} text-white flex flex-col items-center justify-center gap-8 px-6 sm:px-10 relative transition-colors duration-500 ${
+        session.message ? "pt-12 pb-40" : "py-12"
+      }`}
     >
       {session.logo_url && (
         // eslint-disable-next-line @next/next/no-img-element
@@ -208,17 +210,26 @@ export default function DisplayScreen({ sessionId }: { sessionId: string }) {
           <span className="text-[10px] uppercase tracking-widest text-white/40">
             Neste på programmet
           </span>
-          <div className="flex flex-wrap justify-center gap-4 md:gap-8">
-            {upcoming.map(({ item, clock, plannedMs }, i) => {
+          {/* CSS Grid med tre LIKE brede kolonner (ikke flex) — slik havner
+              midtre punkt alltid midt på skjermen, uansett hvor lang tekst
+              nabo-punktene har. Ubrukte kolonner (færre enn 3 kommende
+              punkter) står bare tomme. */}
+          <div className="grid grid-cols-3 gap-4 md:gap-8 w-full max-w-4xl">
+            {[0, 1, 2].map((i) => {
+              const entry = upcoming[i];
+              if (!entry) return <div key={i} />;
+              const { item, clock, plannedMs } = entry;
               // "Ny tid" justerer det opprinnelig planlagte tidspunktet med
               // nøyaktig samme avvik som Status-pillen viser akkurat nå —
               // altså hvor punktet faktisk ser ut til å starte hvis avviket
-              // holder seg. "Planlagt tid" er alltid den opprinnelige planen,
-              // uendret.
+              // holder seg. "Kl." er alltid den opprinnelige planen, uendret.
               const driftSecs = hasActive ? liveStatus : 0;
               const newMs = plannedMs != null ? plannedMs + driftSecs * 1000 : null;
               const newClock = newMs != null ? fmtClock(newMs) : "";
               const showNewClock = !!clock && !!newClock && newClock !== clock;
+              // Rødt når "Ny tid" er SENERE enn planen (forsinket), grønt
+              // når vi er på eller foran planen.
+              const isLate = driftSecs > 0;
               return (
                 <div key={item.id} className="flex flex-col items-center gap-1 opacity-70">
                   <span className="text-[10px] text-white/40 font-mono">{i + 1}</span>
@@ -231,11 +242,15 @@ export default function DisplayScreen({ sessionId }: { sessionId: string }) {
                   </span>
                   {clock && (
                     <div className="flex items-center gap-1.5 mt-0.5">
-                      <span className="text-xs md:text-sm text-white/40 font-mono">
-                        Planlagt tid {clock}
-                      </span>
+                      <span className="text-xs md:text-sm text-white/40 font-mono">Kl. {clock}</span>
                       {showNewClock && (
-                        <span className="text-[10px] md:text-xs font-mono font-semibold text-[#4ade80] bg-[#0a1f0a] border border-[#1a4a2a] rounded px-1.5 py-0.5">
+                        <span
+                          className={`text-[10px] md:text-xs font-mono font-semibold rounded px-1.5 py-0.5 border ${
+                            isLate
+                              ? "text-[#f87171] bg-[#2a0a0a] border-[#4a1515]"
+                              : "text-[#4ade80] bg-[#0a1f0a] border-[#1a4a2a]"
+                          }`}
+                        >
                           Ny tid {newClock}
                         </span>
                       )}
@@ -249,7 +264,7 @@ export default function DisplayScreen({ sessionId }: { sessionId: string }) {
       )}
 
       {session.message && (
-        <div className="fixed bottom-10 left-1/2 -translate-x-1/2 bg-[#fde68a] text-[#3a2a00] font-semibold text-lg md:text-2xl px-8 py-4 rounded-full shadow-2xl max-w-[80vw] text-center">
+        <div className="fixed bottom-14 left-1/2 -translate-x-1/2 bg-[#fde68a] text-[#3a2a00] font-semibold text-lg md:text-2xl px-8 py-5 rounded-full shadow-2xl max-w-[80vw] text-center">
           {session.message}
         </div>
       )}

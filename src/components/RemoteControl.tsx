@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase";
 import { AgendaItemRow, SessionRow } from "@/lib/types";
-import { fmt, calcRemaining } from "@/lib/timer";
+import { fmt, fmtClock, calcRemaining } from "@/lib/timer";
 import { useLiveRemaining } from "@/hooks/useLiveRemaining";
 import SupabaseSetupNotice from "@/components/SupabaseSetupNotice";
 
@@ -28,6 +28,7 @@ export default function RemoteControl({ sessionId }: { sessionId: string }) {
   const [agenda, setAgenda] = useState<AgendaItemRow[]>([]);
   const [notFound, setNotFound] = useState(false);
   const [msgInput, setMsgInput] = useState("");
+  const [msgPopupOpen, setMsgPopupOpen] = useState(false);
 
   const fetchAgenda = useCallback(async () => {
     const { data } = await supabase
@@ -196,6 +197,26 @@ export default function RemoteControl({ sessionId }: { sessionId: string }) {
     return secondsPast - currentElapsed;
   }, [session, activeIdx, agenda, rem, nowTick]);
 
+  // Planlagt klokkeslett per punkt (samme klokke-anker som kontrollpanelet
+  // og visningsskjermen) — brukes til "Kl."/"Ny tid" i programoversikten.
+  const scheduledTimes = useMemo(() => {
+    if (!session) return agenda.map(() => null as number | null);
+    const base = session.program_scheduled_ms || session.program_start_ms;
+    if (!base) return agenda.map(() => null as number | null);
+    let offsetMs = 0;
+    return agenda.map((item) => {
+      if (item.is_section) return null;
+      const start = base + offsetMs;
+      offsetMs += item.duration_secs * 1000;
+      return start;
+    });
+  }, [agenda, session]);
+
+  const totalProgramSecs = useMemo(
+    () => agenda.reduce((sum, it) => sum + (it.is_section ? 0 : it.duration_secs), 0),
+    [agenda]
+  );
+
   if (!isSupabaseConfigured) {
     return <SupabaseSetupNotice />;
   }
@@ -215,15 +236,21 @@ export default function RemoteControl({ sessionId }: { sessionId: string }) {
   }
 
   const isOvertime = rem < 0;
-  const absRem = Math.max(0, rem);
+  // Math.abs (ikke Math.max(0, rem)) — se samme fiks i DisplayScreen.tsx.
+  const absRem = Math.abs(rem);
   const hasActive = activeIdx >= 0 && !agenda[activeIdx]?.is_section;
   const absStatus = Math.abs(liveStatus);
 
+  const programAnchorMs = session.program_scheduled_ms || session.program_start_ms;
+  const plannedEndMs =
+    programAnchorMs && totalProgramSecs > 0 ? programAnchorMs + totalProgramSecs * 1000 : null;
+  const estimatedEndMs = plannedEndMs != null ? plannedEndMs + liveStatus * 1000 : null;
+
   return (
-    <div className="min-h-screen w-full overflow-x-hidden bg-[#080808] text-[#d8d8d8] p-4 pb-10 flex flex-col gap-4 max-w-md mx-auto">
-      <div className="flex items-center justify-between pt-1">
+    <div className="min-h-screen w-full overflow-x-hidden bg-[#080808] text-[#d8d8d8] p-4 pb-8 flex flex-col gap-3 max-w-md mx-auto">
+      <div className="flex items-center justify-between">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/prodpilot-logo.png" alt="ProdPilot" className="h-3.5 w-auto" />
+        <img src="/prodpilot-logo.png" alt="ProdPilot" className="h-5 w-auto" />
         <span className="text-[10px] font-semibold rounded-full border border-[#1a3a6a] bg-[#080f20] text-[#93c5fd] px-2.5 py-0.5">
           Fjernkontroll
         </span>
@@ -235,8 +262,10 @@ export default function RemoteControl({ sessionId }: { sessionId: string }) {
         )}
         <div className="text-lg font-semibold text-white">{hasActive ? session.active_label : "Ingen aktiv"}</div>
         <div
-          className="text-6xl font-bold tabular-nums"
-          style={{ color: hasActive ? session.active_color : "#333" }}
+          className={`text-6xl font-bold tabular-nums ${isOvertime ? "text-[#f87171]" : !hasActive ? "text-[#333]" : ""}`}
+          // `active_color` skal kun style tallet innenfor tiden — under
+          // overtid skal det alltid være rødt (se samme fiks i DisplayScreen).
+          style={{ color: hasActive && !isOvertime ? session.active_color : undefined }}
         >
           {hasActive ? (isOvertime ? "+" : "") + fmt(absRem) : "--:--"}
         </div>
@@ -246,7 +275,7 @@ export default function RemoteControl({ sessionId }: { sessionId: string }) {
               absStatus < 2
                 ? "border-[#2a2a2a] text-[#555]"
                 : liveStatus > 0
-                ? "border-[#4a1515] text-[#fca5a5] bg-[#1a0808]"
+                ? "border-[#4a1515] text-[#f87171] bg-[#1a0808]"
                 : "border-[#1a4a2a] text-[#4ade80] bg-[#0a1f0a]"
             }`}
           >
@@ -279,43 +308,118 @@ export default function RemoteControl({ sessionId }: { sessionId: string }) {
         </button>
       </div>
 
-      <div className="rounded-2xl border border-[#1e1e1e] bg-[#0e0e0e] p-4 flex flex-col gap-2">
-        <div className="text-[9px] font-bold text-[#555] uppercase tracking-wider">Melding til visningsskjerm</div>
+      {/* Melding til visningsskjerm er nå en pop-up (i stedet for et stort,
+          alltid synlig felt) — sparer mye plass på en liten skjerm. Når en
+          melding er aktiv, vises en liten grønn indikator man kan trykke på
+          for å fjerne den direkte, uten å åpne pop-upen. */}
+      <div className="flex items-center gap-2">
+        <button
+          className="flex-1 rounded-xl border border-[#1e1e1e] bg-[#0e0e0e] text-[#93c5fd] text-xs font-semibold py-3 px-4 text-left flex items-center gap-2"
+          onClick={() => setMsgPopupOpen(true)}
+        >
+          ✉ Melding til visningsskjerm
+          {session.message && (
+            <span className="ml-auto text-[#4ade80] text-[10px] italic truncate max-w-[120px]">
+              {session.message}
+            </span>
+          )}
+        </button>
         {session.message && (
-          <div className="text-xs text-[#4ade80] italic bg-[#0d1f0d] border border-[#1a4a1a] rounded-lg px-3 py-2">
-            {session.message}
-          </div>
-        )}
-        <textarea
-          className="bg-[#080808] border border-[#2a2a2a] rounded-md text-[#d8d8d8] text-sm p-2.5"
-          rows={2}
-          placeholder="Skriv en melding…"
-          value={msgInput}
-          onChange={(e) => setMsgInput(e.target.value)}
-        />
-        <div className="grid grid-cols-2 gap-2">
           <button
-            className="rounded-md border border-[#1e3a70] bg-[#0d1f40] text-[#93c5fd] text-xs py-2"
-            onClick={sendMsg}
+            className="flex-shrink-0 rounded-xl border border-[#1a4a1a] bg-[#0d1f0d] text-[#4ade80] text-sm px-3.5 py-3"
+            onClick={clearMsg}
+            title="Fjern meldingen"
           >
-            Send
+            ✕
           </button>
-          <button className="rounded-md border border-[#2a2a2a] bg-[#141414] text-xs py-2" onClick={clearMsg}>
-            Fjern
-          </button>
-        </div>
+        )}
       </div>
+
+      {msgPopupOpen && (
+        <div
+          className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4"
+          onClick={() => setMsgPopupOpen(false)}
+        >
+          <div
+            className="rounded-2xl border border-[#1e1e1e] bg-[#0e0e0e] p-4 flex flex-col gap-2 w-full max-w-sm"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <div className="text-[9px] font-bold text-[#555] uppercase tracking-wider">
+                Melding til visningsskjerm
+              </div>
+              <button
+                className="text-[#555] hover:text-white text-lg leading-none"
+                onClick={() => setMsgPopupOpen(false)}
+              >
+                ×
+              </button>
+            </div>
+            <textarea
+              autoFocus
+              className="bg-[#080808] border border-[#2a2a2a] rounded-md text-[#d8d8d8] text-sm p-2.5"
+              rows={3}
+              placeholder="Skriv en melding…"
+              value={msgInput}
+              onChange={(e) => setMsgInput(e.target.value)}
+            />
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                className="rounded-md border border-[#1e3a70] bg-[#0d1f40] text-[#93c5fd] text-xs py-2"
+                onClick={() => {
+                  sendMsg();
+                  setMsgPopupOpen(false);
+                }}
+              >
+                Send
+              </button>
+              <button
+                className="rounded-md border border-[#2a2a2a] bg-[#141414] text-xs py-2"
+                onClick={() => {
+                  clearMsg();
+                  setMsgPopupOpen(false);
+                }}
+              >
+                Fjern
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="rounded-2xl border border-[#1e1e1e] bg-[#0e0e0e] p-4 flex flex-col gap-1">
         <div className="text-[9px] font-bold text-[#555] uppercase tracking-wider mb-1">Programoversikt</div>
+        {/* Planlagt sluttidspunkt + justert anslag — utenfor scroll-området
+            under, slik at den blir stående selv om man blar i punktene. */}
+        {plannedEndMs != null && (
+          <div className="flex items-center justify-between text-[10px] text-[#555] pb-2 mb-1 border-b border-[#1e1e1e]">
+            <span>Planlagt slutt: {fmtClock(plannedEndMs)}</span>
+            <span
+              className={
+                absStatus < 2 ? "text-[#555]" : liveStatus > 0 ? "text-[#f87171]" : "text-[#4ade80]"
+              }
+            >
+              Ny tid: {fmtClock(estimatedEndMs)}
+            </span>
+          </div>
+        )}
         <div className="flex flex-col gap-1 max-h-[40vh] overflow-y-auto">
           {agenda.length === 0 && <div className="text-xs text-[#444]">Ingen punkter enda.</div>}
-          {agenda.map((item, i) =>
-            item.is_section ? (
-              <div key={item.id} className="text-[10px] font-semibold text-[#666] uppercase tracking-wide pt-2">
-                {item.name}
-              </div>
-            ) : (
+          {agenda.map((item, i) => {
+            if (item.is_section) {
+              return (
+                <div key={item.id} className="text-[10px] font-semibold text-[#666] uppercase tracking-wide pt-2">
+                  {item.name}
+                </div>
+              );
+            }
+            const plannedMs = scheduledTimes[i];
+            const drift = hasActive ? liveStatus : 0;
+            const newMs = plannedMs != null ? plannedMs + drift * 1000 : null;
+            const plannedClock = fmtClock(plannedMs);
+            const newClock = newMs != null ? fmtClock(newMs) : "";
+            const showNewClock = !!plannedClock && !!newClock && newClock !== plannedClock;
+            return (
               <button
                 key={item.id}
                 onClick={() => loadItem(i)}
@@ -329,10 +433,20 @@ export default function RemoteControl({ sessionId }: { sessionId: string }) {
               >
                 <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: item.color }} />
                 <span className="flex-1 truncate">{item.name}</span>
-                <span className="text-[10px] text-[#444] font-mono">{fmt(item.duration_secs)}</span>
+                <span className="flex flex-col items-end gap-0.5 flex-shrink-0">
+                  <span className="text-[10px] text-[#444] font-mono">{fmt(item.duration_secs)}</span>
+                  {plannedClock && (
+                    <span className="text-[9px] font-mono text-[#555]">
+                      Kl. {plannedClock}
+                      {showNewClock && (
+                        <span className={drift > 0 ? "text-[#f87171]" : "text-[#4ade80]"}> · {newClock}</span>
+                      )}
+                    </span>
+                  )}
+                </span>
               </button>
-            )
-          )}
+            );
+          })}
         </div>
       </div>
     </div>

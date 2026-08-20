@@ -156,11 +156,40 @@ export default function ControlPanel({
   const [newItemSectionKey, setNewItemSectionKey] = useState("");
   const [editMode, setEditMode] = useState(false);
   const [linkMenuOpen, setLinkMenuOpen] = useState<"display" | "remote" | null>(null);
+  // Egen, i appens stil, bekreftelses-dialog i stedet for nettleserens
+  // innebygde window.confirm() — ser mer helhetlig ut og kan faktisk
+  // stylet/oversettes fritt.
+  const [confirmDialog, setConfirmDialog] = useState<{
+    message: string;
+    confirmLabel?: string;
+    cancelLabel?: string;
+    danger?: boolean;
+    onConfirm: () => void;
+    onCancel?: () => void;
+  } | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const linkMenuRef = useRef<HTMLDivElement>(null);
   const logoInputRef = useRef<HTMLInputElement>(null);
   const autostartFiredRef = useRef(false);
+
+  const askConfirm = useCallback(
+    (
+      message: string,
+      onConfirm: () => void,
+      opts?: { onCancel?: () => void; confirmLabel?: string; cancelLabel?: string; danger?: boolean }
+    ) => {
+      setConfirmDialog({
+        message,
+        onConfirm,
+        onCancel: opts?.onCancel,
+        confirmLabel: opts?.confirmLabel,
+        cancelLabel: opts?.cancelLabel,
+        danger: opts?.danger,
+      });
+    },
+    []
+  );
 
   // ── ORIGIN + KLOKKE ──────────────────────────────────────────
   useEffect(() => {
@@ -557,6 +586,78 @@ export default function ControlPanel({
     if (prevIdx >= 0) loadItem(prevIdx);
   }, [prevIdx, loadItem]);
 
+  // ── TASTATURSNARVEIER (kun PC — mobil-nettlesere sender ikke disse
+  // tastene, så ingen egen enhets-sjekk er nødvendig) ────────────────
+  // Piltastene: frem/tilbake. Mellomrom: neste. R: reset. Enter: start
+  // hvis stoppet, pause hvis den går. Slås av mens man skriver i et
+  // felt (input/textarea/select/contenteditable), slik at man kan skrive
+  // navn, notater osv. som normalt uten at bokstaver trigger snarveier.
+  useEffect(() => {
+    function isTypingTarget(el: EventTarget | null) {
+      if (!(el instanceof HTMLElement)) return false;
+      const tag = el.tagName;
+      return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || el.isContentEditable;
+    }
+    function onKeyDown(e: KeyboardEvent) {
+      if (isTypingTarget(e.target) || e.metaKey || e.ctrlKey || e.altKey) return;
+      // Ikke la snarveier trigge transport-knapper mens en pop-up/modal
+      // står åpen (legg til punkt/bolk, innstillinger, rediger punkt,
+      // bekreftelsesdialog osv.) — da vil man normalt bare lukke/avbryte,
+      // ikke starte/pause/reset/hoppe i programmet i bakgrunnen.
+      if (
+        addItemOpen ||
+        addSectionOpen ||
+        settingsOpen ||
+        editIdx !== null ||
+        confirmDialog ||
+        projectMenuOpen ||
+        linkMenuOpen
+      )
+        return;
+      switch (e.key) {
+        case "ArrowRight":
+        case "ArrowDown":
+        case " ":
+          e.preventDefault();
+          nextItem();
+          break;
+        case "ArrowLeft":
+        case "ArrowUp":
+          e.preventDefault();
+          prevItem();
+          break;
+        case "r":
+        case "R":
+          e.preventDefault();
+          resetTimer();
+          break;
+        case "Enter":
+          e.preventDefault();
+          if (session?.running) pauseTimer();
+          else startTimer();
+          break;
+        default:
+          break;
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [
+    session,
+    startTimer,
+    pauseTimer,
+    resetTimer,
+    nextItem,
+    prevItem,
+    addItemOpen,
+    addSectionOpen,
+    settingsOpen,
+    editIdx,
+    confirmDialog,
+    projectMenuOpen,
+    linkMenuOpen,
+  ]);
+
   // ── AGENDA-REDIGERING ────────────────────────────────────────
   const addItem = useCallback(() => {
     const name = newName.trim();
@@ -635,16 +736,21 @@ export default function ControlPanel({
   );
 
   const clearAll = useCallback(() => {
-    if (!confirm("Tømme hele programmet?")) return;
-    syncAgenda([]);
-    patchSession({
-      active_idx: -1,
-      active_label: "",
-      active_note: "",
-      active_section: "",
-      accumulated: 0,
-    });
-  }, [syncAgenda, patchSession]);
+    askConfirm(
+      "Tømme hele programmet?",
+      () => {
+        syncAgenda([]);
+        patchSession({
+          active_idx: -1,
+          active_label: "",
+          active_note: "",
+          active_section: "",
+          accumulated: 0,
+        });
+      },
+      { danger: true, confirmLabel: "Tøm alt" }
+    );
+  }, [askConfirm, syncAgenda, patchSession]);
 
   const openEdit = useCallback(
     (i: number) => {
@@ -755,28 +861,33 @@ export default function ControlPanel({
     [session, sessionId, patchSession]
   );
 
-  const deleteCurrentProject = useCallback(async () => {
+  const deleteCurrentProject = useCallback(() => {
     if (!sessionId || !session) return;
-    if (!confirm(`Slette prosjektet «${session.name}»? Dette kan ikke angres.`)) return;
-    const { error } = await supabase.from("sessions").delete().eq("id", sessionId);
-    if (error) {
-      console.error("Kunne ikke slette prosjekt:", error);
-      return;
-    }
-    setSettingsOpen(false);
-    const { data: remaining } = await supabase
-      .from("sessions")
-      .select("id,name,updated_at")
-      .order("updated_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    if (remaining) {
-      await switchProject(remaining.id);
-    } else {
-      await createProject();
-    }
-    refreshProjects();
-  }, [sessionId, session, switchProject, createProject, refreshProjects]);
+    askConfirm(
+      `Slette prosjektet «${session.name}»? Dette kan ikke angres.`,
+      async () => {
+        const { error } = await supabase.from("sessions").delete().eq("id", sessionId);
+        if (error) {
+          console.error("Kunne ikke slette prosjekt:", error);
+          return;
+        }
+        setSettingsOpen(false);
+        const { data: remaining } = await supabase
+          .from("sessions")
+          .select("id,name,updated_at")
+          .order("updated_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (remaining) {
+          await switchProject(remaining.id);
+        } else {
+          await createProject();
+        }
+        refreshProjects();
+      },
+      { danger: true, confirmLabel: "Slett prosjekt" }
+    );
+  }, [sessionId, session, askConfirm, switchProject, createProject, refreshProjects]);
 
   // ── MELDING / BAKGRUNN / LOGO ─────────────────────────────────
   const sendMsg = useCallback(() => {
@@ -888,12 +999,21 @@ export default function ControlPanel({
             setImportStatus("Ingen rader funnet — bruk importmalen");
             return;
           }
-          if (confirm(`Fant ${items.length} rader. Legge til?`)) {
-            syncAgenda([...agenda, ...items]);
-            setImportStatus(`Lagt til ${items.length} rader`);
-          } else {
-            setImportStatus("Importer fra Excel / CSV — dra hit eller klikk");
-          }
+          // Vår egen bekreftelses-dialog er asynkron (venter på klikk) i
+          // stedet for blokkerende som window.confirm() var — selve
+          // fil-inputen nullstilles derfor uavhengig av svaret, med det
+          // samme, som før.
+          askConfirm(
+            `Fant ${items.length} rader. Legge til?`,
+            () => {
+              syncAgenda([...agenda, ...items]);
+              setImportStatus(`Lagt til ${items.length} rader`);
+            },
+            {
+              onCancel: () => setImportStatus("Importer fra Excel / CSV — dra hit eller klikk"),
+              confirmLabel: "Legg til",
+            }
+          );
         } catch (err) {
           console.error(err);
           setImportStatus("Feil ved lesing. Last ned og bruk importmalen.");
@@ -903,7 +1023,7 @@ export default function ControlPanel({
       if (isCsv) reader.readAsText(file, "UTF-8");
       else reader.readAsArrayBuffer(file);
     },
-    [agenda, selColor, syncAgenda]
+    [agenda, selColor, syncAgenda, askConfirm]
   );
 
   const downloadTemplate = useCallback(() => {
@@ -1039,6 +1159,11 @@ export default function ControlPanel({
 
   // Punktlisten er en funksjon (ikke en fast variabel) slik at den kan
   // gjenbrukes med ulik makshøyde i vanlig visning vs. "Rediger program".
+  // Samme avvik som Status-pillen — brukes til å justere "Ny tid" for hver
+  // rad i programoversikten.
+  const agendaDriftSecs = activeIdx >= 0 && !agenda[activeIdx]?.is_section ? liveStatus : 0;
+  const anyScheduledTime = scheduledTimes.some((t) => t != null);
+
   const renderAgendaList = (maxHeightClass: string) => (
     <>
       <div className="flex items-center">
@@ -1054,21 +1179,36 @@ export default function ControlPanel({
         </button>
       </div>
 
+      {/* Forklarer hva klokkeslettene bak hvert punkt betyr — uten dette er
+          det ikke opplagt hva et bart "18:11" eller "· 18:17" er for noe. */}
+      {anyScheduledTime && (
+        <div className="flex items-center justify-end gap-1 text-[9px] text-[#444] pr-0.5">
+          <span>Planlagt tid</span>
+          <span>· Ny tid</span>
+        </div>
+      )}
+
       <div className={`flex flex-col gap-0.5 ${maxHeightClass} overflow-y-auto pr-0.5`}>
-        {agenda.map((item, i) =>
-          item.is_section ? (
-            <SectionRow
-              key={item.key}
-              item={item}
-              i={i}
-              moveUp={moveUp}
-              moveDown={moveDown}
-              openEdit={openEdit}
-              removeItem={removeItem}
-              timeLabel={fmtClock(scheduledTimes[i])}
-              secLabel={itemSum(agenda, i)}
-            />
-          ) : (
+        {agenda.map((item, i) => {
+          if (item.is_section) {
+            return (
+              <SectionRow
+                key={item.key}
+                item={item}
+                i={i}
+                moveUp={moveUp}
+                moveDown={moveDown}
+                openEdit={openEdit}
+                removeItem={removeItem}
+                timeLabel={fmtClock(scheduledTimes[i])}
+                secLabel={itemSum(agenda, i)}
+              />
+            );
+          }
+          const plannedMs = scheduledTimes[i];
+          const clock = fmtClock(plannedMs);
+          const newClock = plannedMs != null ? fmtClock(plannedMs + agendaDriftSecs * 1000) : "";
+          return (
             <AgendaRow
               key={item.key}
               item={item}
@@ -1076,15 +1216,17 @@ export default function ControlPanel({
               num={agenda.slice(0, i + 1).filter((a) => !a.is_section).length}
               isActive={i === activeIdx}
               isDone={activeIdx >= 0 && i < activeIdx}
-              clock={fmtClock(scheduledTimes[i])}
+              clock={clock}
+              newClock={newClock}
+              isLate={agendaDriftSecs > 0}
               moveUp={moveUp}
               moveDown={moveDown}
               openEdit={openEdit}
               removeItem={removeItem}
               loadItem={loadItem}
             />
-          )
-        )}
+          );
+        })}
       </div>
     </>
   );
@@ -1093,7 +1235,7 @@ export default function ControlPanel({
   // farge osv.) — holder resten av kontrollpanelet ryddig når man bare
   // trenger å legge til ett og ett punkt innimellom.
   const programPanel = (
-    <div className="panel gap-3.5">
+    <div className="panel gap-3.5 h-full">
       <div className="ptitle">Program</div>
       <div className="grid grid-cols-2 gap-1.5">
         <button
@@ -1109,7 +1251,7 @@ export default function ControlPanel({
           + Legg til bolk
         </button>
       </div>
-      {renderAgendaList("max-h-[560px]")}
+      {renderAgendaList("flex-1 min-h-[200px]")}
     </div>
   );
 
@@ -1212,7 +1354,7 @@ export default function ControlPanel({
   );
 
   return (
-    <div className="min-h-screen p-4 md:p-5">
+    <div className="min-h-screen w-full overflow-x-hidden p-4 md:p-5">
       {/* EDIT MODAL */}
       {editIdx !== null && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
@@ -1357,6 +1499,46 @@ export default function ControlPanel({
       )}
 
       {/* NY BOLK-MODAL */}
+      {/* Egen bekreftelses-dialog (erstatter window.confirm() sitt
+          nettleser-utseende) — brukes for "Tøm alt", "Slett prosjekt" og
+          "Legge til importerte rader?". */}
+      {confirmDialog && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-4"
+          onClick={() => {
+            confirmDialog.onCancel?.();
+            setConfirmDialog(null);
+          }}
+        >
+          <div
+            className="w-full max-w-sm rounded-xl border border-[#2a2a2a] bg-[#111] p-5 flex flex-col gap-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="text-sm text-[#d8d8d8] leading-relaxed">{confirmDialog.message}</p>
+            <div className="flex gap-2">
+              <button
+                className={`btn flex-1 ${confirmDialog.danger ? "red" : "blue"}`}
+                onClick={() => {
+                  confirmDialog.onConfirm();
+                  setConfirmDialog(null);
+                }}
+              >
+                {confirmDialog.confirmLabel || "Bekreft"}
+              </button>
+              <button
+                className="btn flex-1"
+                onClick={() => {
+                  confirmDialog.onCancel?.();
+                  setConfirmDialog(null);
+                }}
+              >
+                {confirmDialog.cancelLabel || "Avbryt"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {addSectionOpen && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
@@ -1451,14 +1633,8 @@ export default function ControlPanel({
         </div>
 
         {/* PROSJEKTNAVN */}
-        <div className="flex items-center gap-2.5 mb-4">
+        <div className="flex flex-wrap items-center gap-2.5 mb-4">
           <h1 className="text-2xl font-bold text-white truncate">{session.name}</h1>
-          <button
-            className={`btn sm flex-shrink-0 ${editMode ? "green" : ""}`}
-            onClick={() => setEditMode((v) => !v)}
-          >
-            {editMode ? "✓ Ferdig med redigering" : "✎ Rediger program"}
-          </button>
           {!editMode && (
             <button
               className="btn sm flex-shrink-0"
@@ -1478,6 +1654,12 @@ export default function ControlPanel({
               ⚙ Innstillinger
             </button>
           )}
+          <button
+            className={`btn sm flex-shrink-0 ${editMode ? "green" : ""}`}
+            onClick={() => setEditMode((v) => !v)}
+          >
+            {editMode ? "✓ Ferdig med redigering" : "✎ Rediger program"}
+          </button>
 
           {/* Fjernkontroll / visningsskjerm — små knapper med Åpne/Kopier-valg,
               øverst til høyre på samme linje. */}
@@ -1555,19 +1737,25 @@ export default function ControlPanel({
              for å bygge opp programmet før man faktisk er i gang. */
           <div className="w-full">{editProgramPanel}</div>
         ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-[2fr_1fr] gap-4 items-start">
-            {/* VENSTRE: PROGRAM */}
+        <div className="grid grid-cols-1 lg:grid-cols-[2fr_1fr] gap-4 items-stretch">
+            {/* VENSTRE: PROGRAM — strekker seg nå til samme høyde som
+                kontroll-kolonnen til høyre, slik at de to boksene ender
+                nederst på samme linje (selve punktlisten scroller internt). */}
             {programPanel}
 
             {/* HØYRE: KONTROLLER */}
             <div className="flex flex-col gap-3.5">
-              {/* Klokke */}
-              <div className="panel py-3.5 px-4 gap-1">
-                <div className="text-[36px] font-bold text-white text-center tracking-wide">
-                  {now.toLocaleTimeString("no-NO")}
-                </div>
-                <div className="text-[10px] text-[#333] text-center">
-                  {now.toLocaleDateString("no-NO", { weekday: "long", day: "numeric", month: "long" })}
+              {/* Klokke — nå kompakt (ingen sekunder, ikke lenger hovedelementet)
+                  med dato litt tydeligere synlig, pluss planlagt/forventet
+                  sluttidspunkt stablet under hverandre. */}
+              <div className="panel py-2.5 px-4 gap-0.5">
+                <div className="flex items-baseline justify-center gap-2">
+                  <span className="text-[22px] font-bold text-white tracking-wide tabular-nums">
+                    {now.toLocaleTimeString("no-NO", { hour: "2-digit", minute: "2-digit" })}
+                  </span>
+                  <span className="text-[11px] text-[#888] capitalize">
+                    {now.toLocaleDateString("no-NO", { weekday: "long", day: "numeric", month: "long" })}
+                  </span>
                 </div>
                 {session.program_scheduled_ms > 0 && (
                   <div className="text-[10px] text-[#555] text-center mt-0.5">
@@ -1582,67 +1770,55 @@ export default function ControlPanel({
                       ` · om ${fmt(Math.round((session.program_scheduled_ms - now.getTime()) / 1000))}`}
                   </div>
                 )}
-              </div>
-
-              {/* Status */}
-              <div className="grid grid-cols-2 gap-3.5">
-                <div className="sc">
-                  <div className="sc-label">Tid igjen</div>
-                  <div
-                    className={`sc-val ${
-                      activeIdx < 0 && !session.running && session.total_secs === 0
-                        ? "text-[#333]"
-                        : isOvertime
-                        ? "text-[#f87171]"
-                        : absRem <= 60
-                        ? "text-[#fde68a]"
-                        : "text-[#4ade80]"
-                    }`}
-                  >
-                    {activeIdx < 0 && !session.running && session.total_secs === 0 ? "--:--" : fmt(absRem)}
-                  </div>
-                  <div className="sc-sub">{session.active_label || "—"}</div>
-                </div>
-                <div className="sc">
-                  <div className="sc-label">Overtid</div>
-                  <div className={`sc-val ${isOvertime ? "text-[#f87171]" : "text-[#222]"}`}>
-                    {isOvertime ? "+" + fmt(Math.abs(rem)) : "—"}
-                  </div>
-                  <div className="sc-sub">{nextItemData ? "Neste: " + nextItemData.name : "Siste punkt"}</div>
-                </div>
-              </div>
-
-              <div className="flex flex-col gap-1.5 bg-[#080808] border border-[#1e1e1e] rounded-lg px-3.5 py-2.5">
-                <div className="flex items-center justify-between">
-                  <span className="status-label">Status</span>
-                  <span
-                    className={`status-pill ${
-                      absStatus < 2
-                        ? "text-[#555] border-[#1e1e1e]"
-                        : liveStatus > 0
-                        ? "text-[#f87171] border-[#4a1515] bg-[#1a0808]"
-                        : "text-[#4ade80] border-[#1a4a2a] bg-[#0a1f0a]"
-                    }`}
-                  >
-                    {absStatus < 2 ? "0:00" : (liveStatus > 0 ? "+" : "-") + fmt(absStatus)}
-                  </span>
-                </div>
                 {plannedEndMs != null && (
-                  <div className="flex items-center justify-between text-[10px] text-[#555]">
-                    <span>Planlagt slutt: {fmtClock(plannedEndMs)}</span>
+                  <div className="flex flex-col items-center gap-0.5 mt-1.5 pt-1.5 border-t border-[#1e1e1e]">
+                    <span className="text-[10px] text-[#555]">Planlagt slutt: {fmtClock(plannedEndMs)}</span>
                     <span
-                      className={
-                        absStatus < 2
-                          ? "text-[#555]"
-                          : liveStatus > 0
-                          ? "text-[#f87171]"
-                          : "text-[#4ade80]"
-                      }
+                      className={`text-[10px] ${
+                        absStatus < 2 ? "text-[#555]" : liveStatus > 0 ? "text-[#f87171]" : "text-[#4ade80]"
+                      }`}
                     >
-                      Ser ut til å bli ferdig: {fmtClock(estimatedEndMs)}
+                      Ny tid: {fmtClock(estimatedEndMs)}
                     </span>
                   </div>
                 )}
+              </div>
+
+              {/* Tid igjen — nå ETT felt (ikke to). Overtid vises i rødt med
+                  "+" rett i dette feltet i stedet for en egen "Overtid"-boks. */}
+              <div className="sc">
+                <div className="sc-label">Tid igjen</div>
+                <div
+                  className={`sc-val lg ${
+                    activeIdx < 0 && !session.running && session.total_secs === 0
+                      ? "text-[#333]"
+                      : isOvertime
+                      ? "text-[#f87171]"
+                      : absRem <= 60
+                      ? "text-[#fde68a]"
+                      : "text-[#4ade80]"
+                  }`}
+                >
+                  {activeIdx < 0 && !session.running && session.total_secs === 0
+                    ? "--:--"
+                    : (isOvertime ? "+" : "") + fmt(isOvertime ? Math.abs(rem) : absRem)}
+                </div>
+                <div className="sc-sub">{session.active_label || "—"}</div>
+              </div>
+
+              <div className="flex items-center justify-between bg-[#080808] border border-[#1e1e1e] rounded-lg px-3.5 py-2.5">
+                <span className="status-label">Status</span>
+                <span
+                  className={`status-pill ${
+                    absStatus < 2
+                      ? "text-[#555] border-[#1e1e1e]"
+                      : liveStatus > 0
+                      ? "text-[#f87171] border-[#4a1515] bg-[#1a0808]"
+                      : "text-[#4ade80] border-[#1a4a2a] bg-[#0a1f0a]"
+                  }`}
+                >
+                  {absStatus < 2 ? "0:00" : (liveStatus > 0 ? "+" : "-") + fmt(absStatus)}
+                </span>
               </div>
 
               {/* Transport */}
@@ -1677,23 +1853,28 @@ export default function ControlPanel({
               {/* Melding */}
               <div className="panel">
                 <div className="ptitle">Melding til visningsskjerm</div>
-                {session.message && (
-                  <div className="flex items-start gap-2 bg-[#0d1f0d] border border-[#1a4a1a] rounded-lg px-2.5 py-2 mb-0.5">
-                    <div className="flex-1">
-                      <div className="text-[9px] font-bold text-[#1a4a1a] uppercase tracking-wider mb-0.5">
-                        Aktiv melding
+                {/* Fast høyde reservert her uansett — uten dette hoppet hele
+                    siden merkbart hver gang en melding ble sendt/fjernet,
+                    siden denne boksen bare dukket opp/forsvant fullstendig. */}
+                <div className="min-h-[44px] mb-0.5">
+                  {session.message && (
+                    <div className="flex items-start gap-2 bg-[#0d1f0d] border border-[#1a4a1a] rounded-lg px-2.5 py-2">
+                      <div className="flex-1">
+                        <div className="text-[9px] font-bold text-[#1a4a1a] uppercase tracking-wider mb-0.5">
+                          Aktiv melding
+                        </div>
+                        <div className="text-xs text-[#4ade80] italic">{session.message}</div>
                       </div>
-                      <div className="text-xs text-[#4ade80] italic">{session.message}</div>
+                      <button
+                        className="text-[#2a4a2a] text-sm px-1"
+                        onClick={clearMsg}
+                        aria-label="Fjern melding"
+                      >
+                        ✕
+                      </button>
                     </div>
-                    <button
-                      className="text-[#2a4a2a] text-sm px-1"
-                      onClick={clearMsg}
-                      aria-label="Fjern melding"
-                    >
-                      ✕
-                    </button>
-                  </div>
-                )}
+                  )}
+                </div>
                 <textarea
                   className="input"
                   rows={2}
@@ -1812,6 +1993,9 @@ export default function ControlPanel({
           font-weight: 700;
           color: #fff;
           letter-spacing: -1px;
+        }
+        .sc-val.lg {
+          font-size: 42px;
         }
         .sc-sub {
           font-size: 10px;
@@ -1997,6 +2181,8 @@ function AgendaRow({
   isActive,
   isDone,
   clock,
+  newClock,
+  isLate,
   moveUp,
   moveDown,
   openEdit,
@@ -2009,6 +2195,8 @@ function AgendaRow({
   isActive: boolean;
   isDone: boolean;
   clock: string;
+  newClock: string;
+  isLate: boolean;
   moveUp: (i: number) => void;
   moveDown: (i: number) => void;
   openEdit: (i: number) => void;
@@ -2030,7 +2218,14 @@ function AgendaRow({
           }`}
         />
         <span className="text-xs flex-1 min-w-0 truncate">{item.name}</span>
-        {clock && <span className="text-[10px] text-[#3a3a3a]">{clock}</span>}
+        {clock && (
+          <span className="text-[10px] text-[#3a3a3a] flex items-center gap-1 flex-shrink-0">
+            {clock}
+            {newClock && newClock !== clock && (
+              <span className={isLate ? "text-[#f87171]" : "text-[#4ade80]"}>· {newClock}</span>
+            )}
+          </span>
+        )}
         <span className="text-[10px] text-[#3a3a3a] font-mono flex-shrink-0">{fmt(item.duration_secs)}</span>
         <div className="flex gap-0.5 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
           <button className="btn xs" onClick={() => moveUp(i)}>↑</button>
