@@ -1155,7 +1155,12 @@ export default function ControlPanel({
   );
   const plannedEndMs =
     programAnchorMs && totalProgramSecs > 0 ? programAnchorMs + totalProgramSecs * 1000 : null;
-  const estimatedEndMs = plannedEndMs != null ? plannedEndMs + liveStatus * 1000 : null;
+  // `Math.round(liveStatus)` FØR gangingen med 1000 — uten dette forplantet
+  // brøkdels-sekunder fra `liveStatus` seg som flyttall-støy gjennom
+  // ms→sek→ms-regnestykket under, som igjen fikk "Program igjen" til å
+  // "vippe" tilfeldig mellom to tall hvert sekund (spesielt synlig i
+  // overtid) i stedet for å telle jevnt.
+  const estimatedEndMs = plannedEndMs != null ? plannedEndMs + Math.round(liveStatus) * 1000 : null;
   // Ny tidtaker: hvor mye tid som er igjen av HELE det planlagte programmet
   // (ikke bare det aktive punktet). Regnes mot `estimatedEndMs` (justert med
   // gjeldende avvik), IKKE den opprinnelige faste `plannedEndMs` — slik at
@@ -1170,7 +1175,6 @@ export default function ControlPanel({
   // Samme avvik som Status-pillen — brukes til å justere "Ny tid" for hver
   // rad i programoversikten.
   const agendaDriftSecs = activeIdx >= 0 && !agenda[activeIdx]?.is_section ? liveStatus : 0;
-  const anyScheduledTime = scheduledTimes.some((t) => t != null);
 
   const renderAgendaList = (maxHeightClass: string) => (
     <>
@@ -1187,14 +1191,20 @@ export default function ControlPanel({
         </button>
       </div>
 
-      {/* Forklarer hva klokkeslettene bak hvert punkt betyr — uten dette er
-          det ikke opplagt hva et bart "18:11" eller "· 18:17" er for noe. */}
-      {anyScheduledTime && (
-        <div className="flex items-center justify-end gap-1 text-[9px] text-[#444] pr-0.5">
-          <span>Planlagt tid</span>
-          <span>· Ny tid</span>
-        </div>
-      )}
+      {/* Kolonneoverskrifter — ALLTID synlige (ikke lenger betinget av om et
+          klokke-anker finnes) og bredden på selve kolonnene under er FAST,
+          slik at ingenting her endrer form/hopper når man trykker Start og
+          feltene fylles med faktiske klokkeslett. */}
+      <div className="flex items-center gap-1.5 px-2.5 text-[9px] text-[#444] uppercase tracking-wide">
+        <span className="min-w-[18px] flex-shrink-0" />
+        <span className="w-[3px] flex-shrink-0" />
+        <span className="w-1.5 flex-shrink-0" />
+        <span className="flex-1 min-w-0" />
+        <span className="w-[100px] text-right flex-shrink-0">Varighet</span>
+        <span className="w-[46px] text-right flex-shrink-0">Planlagt</span>
+        <span className="w-[46px] text-right flex-shrink-0">Ny tid</span>
+        <span className="w-[135px] flex-shrink-0" />
+      </div>
 
       <div className={`flex flex-col gap-0.5 ${maxHeightClass} overflow-y-auto pr-0.5`}>
         {agenda.map((item, i) => {
@@ -1842,12 +1852,21 @@ export default function ControlPanel({
                 </div>
               </div>
 
-              {/* Tidtaker (aktivt punkt) — tiden venstrestilt, tekst/navn
-                  høyrestilt. Kun hvit (normalt) og rødt (overtid) — farges
-                  ALDRI etter posten/bolkens egen farge lenger. */}
+              {/* Tidtaker (aktivt punkt) — navnet på hva som er på nå
+                  venstrestilt, selve tiden høyrestilt (byttet om fra forrige
+                  runde). Kun hvit (normalt) og rødt (overtid) — farges ALDRI
+                  etter posten/bolkens egen farge. */}
               <div className="sc flex items-center justify-between gap-3 flex-shrink-0">
+                <div className="flex flex-col min-w-0 gap-0.5">
+                  <span className="text-[9px] font-bold text-[#555] uppercase tracking-wider">
+                    Tidtaker
+                  </span>
+                  <span className="text-[13px] font-medium text-[#bbb] truncate max-w-[150px]">
+                    {session.active_label || "—"}
+                  </span>
+                </div>
                 <div
-                  className={`sc-val lg leading-none ${
+                  className={`sc-val lg leading-none text-right ${
                     activeIdx < 0 && !session.running && session.total_secs === 0
                       ? "text-[#333]"
                       : isOvertime
@@ -1858,14 +1877,6 @@ export default function ControlPanel({
                   {activeIdx < 0 && !session.running && session.total_secs === 0
                     ? "--:--"
                     : (isOvertime ? "+" : "") + fmt(isOvertime ? Math.abs(rem) : absRem)}
-                </div>
-                <div className="flex flex-col items-end text-right min-w-0 gap-0.5">
-                  <span className="text-[9px] font-bold text-[#555] uppercase tracking-wider">
-                    Tidtaker
-                  </span>
-                  <span className="text-[13px] font-medium text-[#bbb] truncate max-w-[150px]">
-                    {session.active_label || "—"}
-                  </span>
                 </div>
               </div>
 
@@ -1913,50 +1924,39 @@ export default function ControlPanel({
                 )}
               </div>
 
-              {/* Melding */}
-              <div className="panel flex-shrink-0">
+              {/* Melding — nå kompakt (én linje) i stedet for et alltid synlig
+                  tekstfelt. Bytter mellom "skriv melding"-visning og "aktiv
+                  melding"-visning, så boksen aldri utvider seg og man ikke
+                  kan sende en ny melding før den aktive er fjernet. */}
+              <div className="panel gap-2 py-3 px-4 flex-shrink-0">
                 <div className="ptitle">Melding til visningsskjerm</div>
-                {/* Fast høyde reservert her uansett — uten dette hoppet hele
-                    siden merkbart hver gang en melding ble sendt/fjernet,
-                    siden denne boksen bare dukket opp/forsvant fullstendig.
-                    line-clamp begrenser hvor mye en lang melding kan vokse
-                    boksen, slik at "hoppet" blir minimalt uansett meldingslengde. */}
-                <div className="min-h-[56px] mb-0.5">
-                  {session.message && (
-                    <div className="flex items-start gap-2 bg-[#0d1f0d] border border-[#1a4a1a] rounded-lg px-2.5 py-2">
-                      <div className="flex-1 min-w-0">
-                        <div className="text-[9px] font-bold text-[#1a4a1a] uppercase tracking-wider mb-0.5">
-                          Aktiv melding
-                        </div>
-                        <div className="text-xs text-[#4ade80] italic line-clamp-2 break-words">
-                          {session.message}
-                        </div>
-                      </div>
-                      <button
-                        className="text-[#2a4a2a] text-sm px-1 flex-shrink-0"
-                        onClick={clearMsg}
-                        aria-label="Fjern melding"
-                      >
-                        ✕
-                      </button>
+                {session.message ? (
+                  <div className="flex items-center gap-2 bg-[#0d1f0d] border border-[#1a4a1a] rounded-lg px-2.5 py-2">
+                    <div className="flex-1 min-w-0 text-xs text-[#4ade80] italic truncate">
+                      {session.message}
                     </div>
-                  )}
-                </div>
-                <textarea
-                  className="input"
-                  rows={2}
-                  placeholder="Melding som vises på visningsskjermen…"
-                  value={msgInput}
-                  onChange={(e) => setMsgInput(e.target.value)}
-                />
-                <div className="grid grid-cols-2 gap-2 mt-2">
-                  <button className="btn blue" onClick={sendMsg}>
-                    Send melding
-                  </button>
-                  <button className="btn" onClick={clearMsg}>
-                    Fjern
-                  </button>
-                </div>
+                    <button className="btn xs flex-shrink-0" onClick={clearMsg}>
+                      Fjern
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <input
+                      className="input"
+                      placeholder="Skriv en melding…"
+                      value={msgInput}
+                      onChange={(e) => setMsgInput(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && msgInput.trim() && sendMsg()}
+                    />
+                    <button
+                      className="btn blue xs flex-shrink-0"
+                      onClick={sendMsg}
+                      disabled={!msgInput.trim()}
+                    >
+                      Send
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -2285,15 +2285,23 @@ function AgendaRow({
           }`}
         />
         <span className="text-xs flex-1 min-w-0 truncate">{item.name}</span>
-        {clock && (
-          <span className="text-[10px] text-[#3a3a3a] flex items-center gap-1 flex-shrink-0">
-            {clock}
-            {newClock && newClock !== clock && (
-              <span className={isLate ? "text-[#f87171]" : "text-[#4ade80]"}>· {newClock}</span>
-            )}
-          </span>
-        )}
-        <span className="text-[10px] text-[#3a3a3a] font-mono flex-shrink-0">{fmtDuration(item.duration_secs)}</span>
+        {/* Tre FASTE kolonner (Varighet / Planlagt / Ny tid) — alltid
+            rendret med samme bredde, med "–" som plassholder når det ikke
+            finnes data ennå, slik at raden aldri endrer form/bredde når man
+            trykker Start og feltene fylles med faktiske klokkeslett. */}
+        <span className="text-[10px] text-[#3a3a3a] font-mono flex-shrink-0 w-[100px] text-right truncate">
+          {fmtDuration(item.duration_secs)}
+        </span>
+        <span className="text-[10px] text-[#3a3a3a] font-mono flex-shrink-0 w-[46px] text-right">
+          {clock || "–"}
+        </span>
+        <span
+          className={`text-[10px] font-mono flex-shrink-0 w-[46px] text-right ${
+            newClock && newClock !== clock ? (isLate ? "text-[#f87171]" : "text-[#4ade80]") : "text-[#3a3a3a]"
+          }`}
+        >
+          {newClock || clock || "–"}
+        </span>
         <div className="flex gap-0.5 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
           <button className="btn xs" onClick={() => moveUp(i)}>↑</button>
           <button className="btn xs" onClick={() => moveDown(i)}>↓</button>

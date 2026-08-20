@@ -155,10 +155,16 @@ export default function DisplayScreen({ sessionId }: { sessionId: string }) {
   const absStatus = Math.abs(liveStatus);
 
   return (
+    // `h-dvh` + en egen, IKKE fast-posisjonert meldingsrad nederst i stedet
+    // for `min-h-screen` + `position: fixed` — meldingen fikk tidligere sin
+    // plass reservert med padding, men en fast-posisjonert boks tar ikke
+    // hensyn til det faktiske innholdets høyde (særlig den nye mobil-listen
+    // for kommende punkter), så den kunne fortsatt havne OPPÅ innhold i
+    // stedet for under det. Nå er meldingen en ordentlig, plasskrevende rad
+    // i selve layouten, som alltid får sin egen plass — hovedinnholdet over
+    // scroller internt (`overflow-y-auto`) hvis det ikke er nok plass igjen.
     <div
-      className={`min-h-screen w-full overflow-x-hidden ${BG_THEMES[session.bg]} text-white flex flex-col items-center justify-center gap-8 px-6 sm:px-10 relative transition-colors duration-500 ${
-        session.message ? "pt-12 pb-40" : "py-12"
-      }`}
+      className={`h-dvh w-full overflow-hidden ${BG_THEMES[session.bg]} text-white flex flex-col relative transition-colors duration-500`}
     >
       {session.logo_url && (
         // eslint-disable-next-line @next/next/no-img-element
@@ -169,6 +175,7 @@ export default function DisplayScreen({ sessionId }: { sessionId: string }) {
         />
       )}
 
+      <div className="flex-1 min-h-0 overflow-y-auto flex flex-col items-center justify-center gap-8 px-6 sm:px-10 py-12">
       {session.active_section && (
         <div className="text-lg md:text-2xl uppercase tracking-[0.25em] text-white/40">
           {session.active_section}
@@ -310,10 +317,16 @@ export default function DisplayScreen({ sessionId }: { sessionId: string }) {
           </div>
         </div>
       )}
+      </div>
 
+      {/* Meldingen er nå en egen rad i selve layouten (ikke lenger
+          `position: fixed`) — den får dermed alltid sin egen plass i stedet
+          for å kunne havne oppå innholdet over. */}
       {session.message && (
-        <div className="fixed bottom-14 left-1/2 -translate-x-1/2 bg-[#fde68a] text-[#3a2a00] font-semibold text-lg md:text-2xl px-8 py-5 rounded-full shadow-2xl max-w-[80vw] text-center">
-          {session.message}
+        <div className="flex-shrink-0 flex items-center justify-center px-6 pb-6 pt-2 sm:px-10">
+          <div className="bg-[#fde68a] text-[#3a2a00] font-semibold text-base md:text-2xl px-6 md:px-8 py-3 md:py-5 rounded-full shadow-2xl max-w-[90vw] text-center">
+            {session.message}
+          </div>
         </div>
       )}
     </div>

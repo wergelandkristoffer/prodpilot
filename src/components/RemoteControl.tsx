@@ -289,7 +289,10 @@ export default function RemoteControl({ sessionId }: { sessionId: string }) {
   const programAnchorMs = session.program_scheduled_ms || session.program_start_ms;
   const plannedEndMs =
     programAnchorMs && totalProgramSecs > 0 ? programAnchorMs + totalProgramSecs * 1000 : null;
-  const estimatedEndMs = plannedEndMs != null ? plannedEndMs + liveStatus * 1000 : null;
+  // Rundet til hele sekunder før multiplikasjon — samme flyttall-støy-fiks
+  // som i kontrollpanelet, forebyggende (samme mønster kunne gitt samme
+  // "vipping" her også).
+  const estimatedEndMs = plannedEndMs != null ? plannedEndMs + Math.round(liveStatus) * 1000 : null;
 
   return (
     <div className="h-dvh w-full overflow-hidden bg-[#080808] text-[#d8d8d8] p-4 flex flex-col gap-3 max-w-md mx-auto">
