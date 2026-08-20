@@ -1181,6 +1181,90 @@ export default function ControlPanel({
   const programRemainingSecs =
     estimatedEndMs != null ? Math.round((estimatedEndMs - Date.now()) / 1000) : null;
 
+  // Klokkeboksens to "rader" ligger som egne variabler (i stedet for å
+  // skrives rett inn i JSX-en under) slik at de samme elementene kan
+  // gjenbrukes TO steder: én gang i en usynlig "målestokk" (som alltid
+  // viser begge radene og dermed alltid gir boksen riktig, fast høyde —
+  // helt uavhengig av om "planlagt start" faktisk er satt), og én gang i
+  // det virkelige, synlige laget (der rad 2 kun tas med når "planlagt
+  // start" faktisk finnes, og som midtstilles vertikalt i den faste
+  // høyden målestokken bestemte). Se boksen selv lenger ned for hvordan
+  // dette settes sammen — dette er det som gir "like mye luft over og
+  // under" uansett om raden med planlagt start vises eller ikke.
+  const clockRow1 = (
+    <div className="flex items-center gap-3">
+      <div className="flex flex-col items-center flex-shrink-0 pr-3 border-r border-[#1e1e1e]">
+        <span className="text-[10px] text-[#888] capitalize tracking-wide whitespace-nowrap">
+          {now.toLocaleDateString("no-NO", { weekday: "long", day: "numeric", month: "long" })}
+        </span>
+        <span className="text-[26px] font-bold text-white tracking-wide tabular-nums leading-none mt-0.5">
+          {now.toLocaleTimeString("no-NO", { hour: "2-digit", minute: "2-digit" })}
+        </span>
+      </div>
+      <div className="flex flex-col gap-1.5 flex-1 min-w-0">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-[10px] text-[#555] flex-shrink-0">Planlagt slutt</span>
+          <span className="text-[11px] text-[#888] font-mono tabular-nums">
+            {plannedEndMs != null ? fmtClock(plannedEndMs) : "--:--"}
+          </span>
+        </div>
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-[10px] text-[#555] flex-shrink-0">Ny tid</span>
+          <span
+            className={`text-[11px] font-mono font-semibold tabular-nums ${
+              estimatedEndMs == null
+                ? "text-[#555]"
+                : absStatus < 2
+                ? "text-[#888]"
+                : liveStatus > 0
+                ? "text-[#f87171]"
+                : "text-[#4ade80]"
+            }`}
+          >
+            {estimatedEndMs != null ? fmtClock(estimatedEndMs) : "--:--"}
+          </span>
+        </div>
+        <div className="flex items-center justify-between gap-2 border-t border-[#1e1e1e] pt-1.5">
+          <span className="text-[9px] text-[#555] uppercase tracking-wider flex-shrink-0">
+            Program igjen
+          </span>
+          {/* Ingen gul/grønn fargeskala her lenger — kun hvit (normalt) og
+              rødt (overtid), samme regel som resten av tidtakerne i
+              appen. */}
+          <span
+            className={`text-[15px] font-bold font-mono tabular-nums ${
+              programRemainingSecs == null
+                ? "text-[#555]"
+                : programRemainingSecs < 0
+                ? "text-[#f87171]"
+                : "text-white"
+            }`}
+          >
+            {programRemainingSecs == null
+              ? "--:--"
+              : (programRemainingSecs < 0 ? "+" : "") + fmt(Math.abs(programRemainingSecs))}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+  const clockRow2 = (
+    <div className="text-[9px] text-[#555] text-center pt-1.5 mt-0.5 border-t border-[#1e1e1e]">
+      Planlagt start:{" "}
+      {session.program_scheduled_ms > 0
+        ? new Date(session.program_scheduled_ms).toLocaleString("no-NO", {
+            day: "numeric",
+            month: "short",
+            hour: "2-digit",
+            minute: "2-digit",
+          }) +
+          (session.program_scheduled_ms > now.getTime()
+            ? ` · om ${fmt(Math.round((session.program_scheduled_ms - now.getTime()) / 1000))}`
+            : "")
+        : "–"}
+    </div>
+  );
+
   // Punktlisten er en funksjon (ikke en fast variabel) slik at den kan
   // gjenbrukes med ulik makshøyde i vanlig visning vs. "Rediger program".
   // Samme avvik som Status-pillen — brukes til å justere "Ny tid" for hver
@@ -1790,86 +1874,38 @@ export default function ControlPanel({
             <div className="flex flex-col gap-3 min-h-0 overflow-y-auto pr-0.5">
               {/* Slått sammen til ÉN boks: klokkeslett til venstre, resten
                   (planlagt slutt / ny tid / tid igjen av programmet) til
-                  høyre — i stedet for to separate bokser. */}
-              <div className="panel py-3 px-4 gap-1.5 flex-shrink-0">
-                <div className="flex items-center gap-3">
-                  <div className="flex flex-col items-center flex-shrink-0 pr-3 border-r border-[#1e1e1e]">
-                    <span className="text-[10px] text-[#888] capitalize tracking-wide whitespace-nowrap">
-                      {now.toLocaleDateString("no-NO", { weekday: "long", day: "numeric", month: "long" })}
-                    </span>
-                    <span className="text-[26px] font-bold text-white tracking-wide tabular-nums leading-none mt-0.5">
-                      {now.toLocaleTimeString("no-NO", { hour: "2-digit", minute: "2-digit" })}
-                    </span>
-                  </div>
-                  <div className="flex flex-col gap-1.5 flex-1 min-w-0">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-[10px] text-[#555] flex-shrink-0">Planlagt slutt</span>
-                      <span className="text-[11px] text-[#888] font-mono tabular-nums">
-                        {plannedEndMs != null ? fmtClock(plannedEndMs) : "--:--"}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-[10px] text-[#555] flex-shrink-0">Ny tid</span>
-                      <span
-                        className={`text-[11px] font-mono font-semibold tabular-nums ${
-                          estimatedEndMs == null
-                            ? "text-[#555]"
-                            : absStatus < 2
-                            ? "text-[#888]"
-                            : liveStatus > 0
-                            ? "text-[#f87171]"
-                            : "text-[#4ade80]"
-                        }`}
-                      >
-                        {estimatedEndMs != null ? fmtClock(estimatedEndMs) : "--:--"}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between gap-2 border-t border-[#1e1e1e] pt-1.5">
-                      <span className="text-[9px] text-[#555] uppercase tracking-wider flex-shrink-0">
-                        Program igjen
-                      </span>
-                      {/* Ingen gul/grønn fargeskala her lenger — kun hvit
-                          (normalt) og rødt (overtid), samme regel som resten
-                          av tidtakerne i appen. */}
-                      <span
-                        className={`text-[15px] font-bold font-mono tabular-nums ${
-                          programRemainingSecs == null
-                            ? "text-[#555]"
-                            : programRemainingSecs < 0
-                            ? "text-[#f87171]"
-                            : "text-white"
-                        }`}
-                      >
-                        {programRemainingSecs == null
-                          ? "--:--"
-                          : (programRemainingSecs < 0 ? "+" : "") + fmt(Math.abs(programRemainingSecs))}
-                      </span>
-                    </div>
-                  </div>
+                  høyre — i stedet for to separate bokser.
+
+                  "Målestokk + overlegg"-mønster for midtstilling: en usynlig
+                  kopi av INNHOLDET (alltid med begge radene, uansett om
+                  "planlagt start" er satt) ligger i vanlig flyt og bestemmer
+                  boksens faste høyde helt automatisk — ingen hardkodede
+                  piksler, boksen tilpasser seg alltid ekte skrift-mål. Selve
+                  det synlige innholdet ligger i et absolutt posisjonert lag
+                  OVENPÅ målestokken og fyller boksen nøyaktig (`inset-0`),
+                  og bruker `justify-center` til å midtstille seg i den faste
+                  høyden. Når "planlagt start" IKKE er satt vises kun rad 1,
+                  og den blir dermed midtstilt med like mye luft over og
+                  under. Når "planlagt start" settes, blir rad 2 med i det
+                  synlige laget også — siden boksens høyde da er nøyaktig
+                  stor nok for begge radene (det er jo det målestokken alltid
+                  viser), fyller de to radene sammen boksen akkurat, med den
+                  samme polstringen over og under — altså fortsatt like mye
+                  luft over og under, nå rundt begge radene samlet. */}
+              <div className="panel py-3 px-4 flex-shrink-0 relative">
+                <div className="invisible flex flex-col gap-1.5" aria-hidden="true">
+                  {clockRow1}
+                  {clockRow2}
                 </div>
-                {/* Skjult (men plassen beholdt via `invisible`, ikke
-                    fjernet fra DOM) når ingen "planlagt tidspunkt for
-                    oppstart" er satt — slik at raden dukker opp uten at
-                    boksen endrer høyde/hopper idet man setter en i
-                    Innstillinger, og forsvinner visuelt (linje og tekst)
-                    igjen uten å ta bort plassen når ingen er satt. */}
-                <div
-                  className={`text-[9px] text-[#555] text-center pt-1.5 mt-0.5 border-t border-[#1e1e1e] ${
-                    session.program_scheduled_ms > 0 ? "" : "invisible"
-                  }`}
-                >
-                  Planlagt start:{" "}
-                  {session.program_scheduled_ms > 0
-                    ? new Date(session.program_scheduled_ms).toLocaleString("no-NO", {
-                        day: "numeric",
-                        month: "short",
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      }) +
-                      (session.program_scheduled_ms > now.getTime()
-                        ? ` · om ${fmt(Math.round((session.program_scheduled_ms - now.getTime()) / 1000))}`
-                        : "")
-                    : "–"}
+                {/* `inset-0` fyller boksens PADDING-boks (kanten helt ut mot
+                    border), IKKE boksens indre content-boks — så polstringen
+                    (`py-3 px-4`) må gjentas eksplisitt her for at det
+                    synlige laget skal havne innenfor samme ramme som
+                    målestokken (som får polstringen sin "gratis" via vanlig
+                    dokumentflyt). */}
+                <div className="absolute inset-0 flex flex-col justify-center gap-1.5 py-3 px-4">
+                  {clockRow1}
+                  {session.program_scheduled_ms > 0 && clockRow2}
                 </div>
               </div>
 
