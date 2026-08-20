@@ -1167,8 +1167,19 @@ export default function ControlPanel({
   // tallet faktisk endrer seg etter hvert som man ligger foran/bak planen,
   // ikke bare teller ned mot et tall som aldri flytter seg. Negativt tall
   // (etter forventet sluttid) vises som overtid i rødt.
+  // VIKTIG: bruk et FRISKT `Date.now()`-kall her — IKKE `now.getTime()`
+  // (den tikkende state-klokken, som kun oppdaterer seg selv ett hakk i
+  // sekundet via setInterval). `estimatedEndMs` over er allerede regnet ut
+  // fra `liveStatus`, som selv bruker et friskt `Date.now()`-kall og
+  // gjenberegnes langt oftere enn `now` (opptil 60 ganger/sek. via
+  // `rem`/requestAnimationFrame). Å blande et fersk tidspunkt med et
+  // inntil ett sekund gammelt var nettopp det som fikk tallet til å
+  // "glitche"/vippe: de to klokkene kom sjelden helt i takt, så avrundingen
+  // kunne slå ulikt ut fra rendring til rendring. Med samme ferske
+  // tidspunkt begge steder oppdaterer tallet seg jevnt, ett sekund av
+  // gangen.
   const programRemainingSecs =
-    estimatedEndMs != null ? Math.round((estimatedEndMs - now.getTime()) / 1000) : null;
+    estimatedEndMs != null ? Math.round((estimatedEndMs - Date.now()) / 1000) : null;
 
   // Punktlisten er en funksjon (ikke en fast variabel) slik at den kan
   // gjenbrukes med ulik makshøyde i vanlig visning vs. "Rediger program".
@@ -1836,7 +1847,17 @@ export default function ControlPanel({
                     </div>
                   </div>
                 </div>
-                <div className="text-[9px] text-[#555] text-center pt-1.5 mt-0.5 border-t border-[#1e1e1e]">
+                {/* Skjult (men plassen beholdt via `invisible`, ikke
+                    fjernet fra DOM) når ingen "planlagt tidspunkt for
+                    oppstart" er satt — slik at raden dukker opp uten at
+                    boksen endrer høyde/hopper idet man setter en i
+                    Innstillinger, og forsvinner visuelt (linje og tekst)
+                    igjen uten å ta bort plassen når ingen er satt. */}
+                <div
+                  className={`text-[9px] text-[#555] text-center pt-1.5 mt-0.5 border-t border-[#1e1e1e] ${
+                    session.program_scheduled_ms > 0 ? "" : "invisible"
+                  }`}
+                >
                   Planlagt start:{" "}
                   {session.program_scheduled_ms > 0
                     ? new Date(session.program_scheduled_ms).toLocaleString("no-NO", {
@@ -1857,16 +1878,21 @@ export default function ControlPanel({
                   runde). Kun hvit (normalt) og rødt (overtid) — farges ALDRI
                   etter posten/bolkens egen farge. */}
               <div className="sc flex items-center justify-between gap-3 flex-shrink-0">
-                <div className="flex flex-col min-w-0 gap-0.5">
+                <div className="flex flex-col min-w-0 gap-0.5 flex-1">
                   <span className="text-[9px] font-bold text-[#555] uppercase tracking-wider">
                     Tidtaker
                   </span>
-                  <span className="text-[13px] font-medium text-[#bbb] truncate max-w-[150px]">
+                  {/* Fikk lov til å bruke mer av boksens bredde før "…" —
+                      ikke lenger en fast `max-w-[150px]`, men strekker seg
+                      til det som faktisk er ledig plass til venstre for
+                      selve tallet (som har `flex-shrink-0` og dermed alltid
+                      beholder sin fulle bredde). */}
+                  <span className="text-[13px] font-medium text-[#bbb] truncate">
                     {session.active_label || "—"}
                   </span>
                 </div>
                 <div
-                  className={`sc-val lg leading-none text-right ${
+                  className={`sc-val lg leading-none text-right flex-shrink-0 ${
                     activeIdx < 0 && !session.running && session.total_secs === 0
                       ? "text-[#333]"
                       : isOvertime

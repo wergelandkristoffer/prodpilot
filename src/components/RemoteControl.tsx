@@ -369,13 +369,18 @@ export default function RemoteControl({ sessionId }: { sessionId: string }) {
           under). Begge knappene har nå eksplisitt lik høyde i stedet for å
           stole på at padding gir samme resultat for begge. */}
       <div className="flex items-center gap-2 flex-shrink-0">
+        {/* Tydeligere som en KNAPP nå — samme fylte blå stil som Neste/
+            Start-knappene (i stedet for en kant som nesten smeltet inn i
+            bakgrunnen), og med et handlingsrettet navn ("Send melding til
+            skjerm" i stedet for det mer nøytrale "Melding til
+            visningsskjerm"). */}
         <button
-          className="flex-1 h-12 rounded-xl border border-[#1e1e1e] bg-[#0e0e0e] text-[#93c5fd] text-xs font-semibold px-4 text-left flex items-center gap-2"
+          className="flex-1 h-12 rounded-xl border border-[#1e3a70] bg-[#0d1f40] text-[#93c5fd] font-bold text-xs px-4 text-left flex items-center gap-2"
           onClick={() => setMsgPopupOpen(true)}
         >
-          Melding til visningsskjerm
+          Send melding til skjerm
           {session.message && (
-            <span className="ml-auto text-[#4ade80] text-[10px] italic truncate max-w-[120px]">
+            <span className="ml-auto text-[#4ade80] text-[10px] italic font-normal truncate max-w-[120px]">
               {session.message}
             </span>
           )}
@@ -449,7 +454,9 @@ export default function RemoteControl({ sessionId }: { sessionId: string }) {
 
       <div className="rounded-2xl border border-[#1e1e1e] bg-[#0e0e0e] p-4 flex flex-col gap-1 flex-1 min-h-0">
         <div className="flex items-center justify-between mb-1 flex-shrink-0">
-          <div className="text-[9px] font-bold text-[#555] uppercase tracking-wider">Programoversikt</div>
+          {/* Lysnet fra #555 til #888 — for mørk/lav kontrast mot
+              bakgrunnen til at teksten var lett å lese. */}
+          <div className="text-[9px] font-bold text-[#888] uppercase tracking-wider">Programoversikt</div>
           {/* Lås/lås opp — hindrer at man hopper til feil punkt ved et
               uhellstrykk. Låst er standard. */}
           <button
@@ -467,11 +474,11 @@ export default function RemoteControl({ sessionId }: { sessionId: string }) {
         {/* Planlagt sluttidspunkt + justert anslag — utenfor scroll-området
             under, slik at den blir stående selv om man blar i punktene. */}
         {plannedEndMs != null && (
-          <div className="flex items-center justify-between text-[10px] text-[#555] pb-2 mb-1 border-b border-[#1e1e1e] flex-shrink-0">
+          <div className="flex items-center justify-between text-[10px] text-[#888] pb-2 mb-1 border-b border-[#1e1e1e] flex-shrink-0">
             <span>Planlagt slutt: {fmtClock(plannedEndMs)}</span>
             <span
               className={
-                absStatus < 2 ? "text-[#555]" : liveStatus > 0 ? "text-[#f87171]" : "text-[#4ade80]"
+                absStatus < 2 ? "text-[#888]" : liveStatus > 0 ? "text-[#f87171]" : "text-[#4ade80]"
               }
             >
               Ny tid: {fmtClock(estimatedEndMs)}
