@@ -57,6 +57,11 @@ export interface SessionRow {
   logo_url: string | null;
 
   program_id: string | null;
+
+  // Hvem eier prosjektet (satt automatisk ved opprettelse). `null` for
+  // gamle rader fra før innlogging fantes, inntil de er tilbakefylt via
+  // engangs-migrasjonen i `supabase/schema.sql`.
+  owner_id: string | null;
 }
 
 export interface AgendaSnapshotItem {

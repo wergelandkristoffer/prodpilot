@@ -18,6 +18,8 @@ export default function ProjectSidebar({
   currentId,
   onSelect,
   onCreate,
+  userEmail,
+  onSignOut,
 }: {
   open: boolean;
   onClose: () => void;
@@ -25,6 +27,8 @@ export default function ProjectSidebar({
   currentId: string | null;
   onSelect: (id: string) => void;
   onCreate: () => void;
+  userEmail: string;
+  onSignOut: () => void;
 }) {
   useEffect(() => {
     if (!open) return;
@@ -81,6 +85,19 @@ export default function ProjectSidebar({
               {p.name || "Uten navn"}
             </button>
           ))}
+        </div>
+
+        {/* Innlogget bruker + logg ut, nederst i skuffen. */}
+        <div className="mt-auto pt-3 border-t border-[#1e1e1e] flex items-center justify-between gap-2 flex-shrink-0">
+          <span className="text-[10px] text-[#555] truncate" title={userEmail}>
+            {userEmail}
+          </span>
+          <button
+            onClick={onSignOut}
+            className="text-[10px] text-[#777] hover:text-[#f87171] transition-colors flex-shrink-0"
+          >
+            Logg ut
+          </button>
         </div>
       </div>
     </div>

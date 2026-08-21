@@ -94,9 +94,26 @@ create trigger programs_set_updated_at
 
 -- ─────────────────────────────────────────────────────────────
 -- REALTIME: gjør at endringer pushes live til visningsskjerm/fjernkontroll
+-- Pakket inn i en sjekk slik at det tåler å kjøres flere ganger — et rått
+-- "alter publication ... add table" feiler hvis tabellen allerede er lagt
+-- til fra en tidligere kjøring.
 -- ─────────────────────────────────────────────────────────────
-alter publication supabase_realtime add table sessions;
-alter publication supabase_realtime add table agenda_items;
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'sessions'
+  ) then
+    alter publication supabase_realtime add table sessions;
+  end if;
+
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'agenda_items'
+  ) then
+    alter publication supabase_realtime add table agenda_items;
+  end if;
+end $$;
 
 -- ─────────────────────────────────────────────────────────────
 -- ROW LEVEL SECURITY
@@ -134,3 +151,89 @@ create policy "anon full access programs" on programs
 grant usage on schema public to anon, authenticated;
 grant select, insert, update, delete on public.sessions, public.programs, public.agenda_items
   to anon, authenticated;
+
+-- ─────────────────────────────────────────────────────────────
+-- AUTH-MIGRASJON (2026-08-21) — innlogging + eier-styrt lagring
+-- Trygt å kjøre på nytt (og trygt å kjøre FØR kontoen under er opprettet —
+-- tilbakefyllingen nederst er da bare en no-op inntil den finnes).
+--
+-- Endrer sessions/agenda_items fra fullt åpne RLS-policyer til:
+--   • Kun innlogget EIER kan OPPRETTE et nytt prosjekt, SLETTE et
+--     prosjekt, eller redigere selve programmet (legge til/redigere/
+--     slette punkter og bolker i agenda_items).
+--   • LESING av en sesjon og programmet, OG å styre avspilling
+--     (start/pause/neste/melding — alt som skjer via sessions-UPDATE),
+--     forblir ÅPENT for alle som har lenken/ID-en, akkurat som i dag.
+--     Dette er bevisst valgt: Fjernkontroll (/remote/[id]) og
+--     Visningsskjerm (/display/[id]) skal fortsatt fungere UTEN
+--     innlogging for alle man deler lenken med.
+-- ─────────────────────────────────────────────────────────────
+
+-- Ny kolonne: hvem eier prosjektet. Nullable inntil videre — eksisterende
+-- rader (fra før innlogging fantes) får eier tilbakefylt lenger ned.
+alter table sessions add column if not exists owner_id uuid references auth.users(id) on delete cascade;
+
+create index if not exists sessions_owner_id_idx on sessions (owner_id);
+
+-- owner_id skal KUN kunne settes ved opprettelse (INSERT), aldri endres
+-- via en senere UPDATE — selv om sessions-UPDATE for øvrig er åpen for
+-- alle (se over), slik at en fjernkontroll-lenke ikke kan brukes til å
+-- "kapre" eierskapet til et prosjekt ved å sende owner_id i en vanlig
+-- avspillings-oppdatering.
+create or replace function lock_owner_id() returns trigger as $$
+begin
+  new.owner_id = old.owner_id;
+  return new;
+end;
+$$ language plpgsql;
+
+drop trigger if exists sessions_lock_owner_id on sessions;
+create trigger sessions_lock_owner_id
+  before update on sessions
+  for each row execute function lock_owner_id();
+
+-- De gamle, fullt åpne "for all"-policyene MÅ droppes (ikke bare legges
+-- til ved siden av) — Postgres slår sammen flere policyer for samme
+-- operasjon med "OR", så den gamle åpne policyen ville ellers fortsatt
+-- tillate alt, uansett hva de nye, strammere policyene sier.
+drop policy if exists "anon full access sessions" on sessions;
+
+create policy "sessions select open" on sessions
+  for select using (true);
+
+create policy "sessions insert own" on sessions
+  for insert with check (auth.uid() = owner_id);
+
+create policy "sessions update open" on sessions
+  for update using (true) with check (true);
+
+create policy "sessions delete own" on sessions
+  for delete using (auth.uid() = owner_id);
+
+drop policy if exists "anon full access agenda_items" on agenda_items;
+
+create policy "agenda_items select open" on agenda_items
+  for select using (true);
+
+create policy "agenda_items insert own" on agenda_items
+  for insert with check (
+    session_id in (select id from sessions where owner_id = auth.uid())
+  );
+
+create policy "agenda_items update own" on agenda_items
+  for update using (
+    session_id in (select id from sessions where owner_id = auth.uid())
+  );
+
+create policy "agenda_items delete own" on agenda_items
+  for delete using (
+    session_id in (select id from sessions where owner_id = auth.uid())
+  );
+
+-- Engangs-tilbakefylling: alle eksisterende prosjekter (uten eier fra
+-- før innlogging fantes) kobles til Kristoffers konto. Trygt å kjøre
+-- flere ganger — rører aldri rader som allerede har fått en eier.
+update sessions
+set owner_id = (select id from auth.users where email = 'kristoffer.wergeland@gmail.com' limit 1)
+where owner_id is null
+  and exists (select 1 from auth.users where email = 'kristoffer.wergeland@gmail.com');

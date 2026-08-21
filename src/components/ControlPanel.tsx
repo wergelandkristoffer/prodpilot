@@ -110,8 +110,14 @@ function describeSupabaseError(err: unknown): string {
 
 export default function ControlPanel({
   initialSessionId,
+  userId,
+  userEmail,
+  onSignOut,
 }: {
   initialSessionId?: string;
+  userId: string;
+  userEmail: string;
+  onSignOut: () => void;
 }) {
   const router = useRouter();
   const [sessionId, setSessionId] = useState<string | null>(
@@ -225,13 +231,18 @@ export default function ControlPanel({
   }, []);
 
   // ── PROSJEKTLISTE (venstremeny) ────────────────────────────────
+  // Filtrert på `owner_id` — hver innlogget bruker skal kun se sine EGNE
+  // prosjekter her. Merk at dette IKKE er det som egentlig håndhever
+  // eierskap (det gjør RLS-policyene i `schema.sql`) — dette er bare
+  // hvilke rader appen faktisk ber om.
   const refreshProjects = useCallback(async () => {
     const { data } = await supabase
       .from("sessions")
       .select("id,name,updated_at")
+      .eq("owner_id", userId)
       .order("updated_at", { ascending: false });
     if (data) setProjects(data as ProjectOption[]);
-  }, []);
+  }, [userId]);
 
   useEffect(() => {
     refreshProjects();
@@ -246,9 +257,13 @@ export default function ControlPanel({
     cleanupRanRef.current = true;
     (async () => {
       try {
+        // Kun blant EGNE prosjekter — uten dette kunne oppryddingen (før
+        // innlogging fantes, da alt var åpent for alle) risikere å slette
+        // en annen brukers tomme test-rad.
         const { data: candidates } = await supabase
           .from("sessions")
           .select("id,name")
+          .eq("owner_id", userId)
           .in("name", ["Nytt program", "Nytt prosjekt"]);
         if (!candidates || candidates.length === 0) return;
         const staleIds: string[] = [];
@@ -268,7 +283,7 @@ export default function ControlPanel({
         console.error("Feil ved opprydding av tomme prosjekter:", err);
       }
     })();
-  }, [ready, sessionId, refreshProjects]);
+  }, [ready, sessionId, refreshProjects, userId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -288,11 +303,13 @@ export default function ControlPanel({
         }
 
         if (!sid) {
-          // Ingen prosjekt-id i URL-en — åpne det sist brukte prosjektet
-          // hvis brukeren har et fra før, ellers opprett et nytt.
+          // Ingen prosjekt-id i URL-en — åpne det sist brukte AV EGNE
+          // prosjekter hvis brukeren har et fra før, ellers opprett et
+          // nytt (eid av den innloggede brukeren).
           const { data: recent } = await supabase
             .from("sessions")
             .select("*")
+            .eq("owner_id", userId)
             .order("updated_at", { ascending: false })
             .limit(1)
             .maybeSingle();
@@ -306,7 +323,7 @@ export default function ControlPanel({
           } else {
             const { data, error } = await supabase
               .from("sessions")
-              .insert({ name: "Nytt prosjekt" })
+              .insert({ name: "Nytt prosjekt", owner_id: userId })
               .select("*")
               .single();
             if (error || !data) {
@@ -799,7 +816,7 @@ export default function ControlPanel({
   const createProject = useCallback(async () => {
     const { data, error } = await supabase
       .from("sessions")
-      .insert({ name: "Nytt prosjekt" })
+      .insert({ name: "Nytt prosjekt", owner_id: userId })
       .select("*")
       .single();
     if (error || !data) {
@@ -820,7 +837,7 @@ export default function ControlPanel({
     setSchedTime("");
     setSettingsOpen(true);
     refreshProjects();
-  }, [router, refreshProjects]);
+  }, [router, refreshProjects, userId]);
 
   const switchProject = useCallback(
     async (id: string) => {
@@ -872,9 +889,13 @@ export default function ControlPanel({
           return;
         }
         setSettingsOpen(false);
+        // Kun blant EGNE gjenværende prosjekter — ellers kunne man etter
+        // sletting havne inne i en annen brukers (siden lesing av sessions
+        // fortsatt er åpent, se schema.sql).
         const { data: remaining } = await supabase
           .from("sessions")
           .select("id,name,updated_at")
+          .eq("owner_id", userId)
           .order("updated_at", { ascending: false })
           .limit(1)
           .maybeSingle();
@@ -887,7 +908,7 @@ export default function ControlPanel({
       },
       { danger: true, confirmLabel: "Slett prosjekt" }
     );
-  }, [sessionId, session, askConfirm, switchProject, createProject, refreshProjects]);
+  }, [sessionId, session, askConfirm, switchProject, createProject, refreshProjects, userId]);
 
   // ── MELDING / BAKGRUNN / LOGO ─────────────────────────────────
   const sendMsg = useCallback(() => {
@@ -1728,6 +1749,8 @@ export default function ControlPanel({
         currentId={sessionId}
         onSelect={switchProject}
         onCreate={createProject}
+        userEmail={userEmail}
+        onSignOut={onSignOut}
       />
 
       <div className="flex flex-col flex-1 min-h-0">
