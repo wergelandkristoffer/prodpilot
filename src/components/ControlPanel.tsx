@@ -1322,12 +1322,12 @@ export default function ControlPanel({
         <span className="flex-1 min-w-0" />
         {/* Litt mer luft + tynne skillestreker mellom de tre tallkolonnene,
             så de ikke flyter sammen visuelt. */}
-        <div className="flex items-center gap-2.5 flex-shrink-0">
+        <div className="flex items-center gap-4 flex-shrink-0">
           <span className="w-[100px] text-right">Varighet</span>
-          <span className="w-[46px] text-right border-l border-[#242424] pl-2.5">Planlagt</span>
-          <span className="w-[46px] text-right border-l border-[#242424] pl-2.5">Ny tid</span>
+          <span className="w-[46px] text-right border-l border-[#454545] pl-3">Planlagt</span>
+          <span className="w-[46px] text-right border-l border-[#454545] pl-3">Ny tid</span>
         </div>
-        <span className="w-[135px] flex-shrink-0" />
+        <span className="w-[145px] flex-shrink-0" />
       </div>
 
       <div className={`flex flex-col gap-0.5 ${maxHeightClass} overflow-y-auto pr-0.5`}>
@@ -1402,12 +1402,15 @@ export default function ControlPanel({
 
   // "Rediger program"-visning: legg-til-feltene ligger fast til venstre
   // (bolk øverst, litt mer kompakt siden den har færre felt — punkt under,
-  // med full plass) mens hele programmet ligger til høyre i full bredde og
-  // bla-bart for seg selv. Venstre kolonne er sticky, så den blir stående
-  // mens man blar i et langt program til høyre.
+  // med full plass) mens hele programmet ligger til høyre. På desktop
+  // (lg) fyller hele visningen skjermhøyden uten at SIDEN trenger å bla —
+  // venstre kolonne scroller kun internt hvis den selv ikke får plass
+  // (`lg:overflow-y-auto`), og programlisten til høyre fyller resten av
+  // høyden og scroller internt (`flex-1 min-h-0`, samme mønster som på
+  // hovedsiden). På mobil er det fortsatt vanlig sideskroll, uendret.
   const editProgramPanel = (
-    <div className="grid grid-cols-1 lg:grid-cols-[340px_1fr] gap-3.5 items-start">
-      <div className="flex flex-col gap-3.5 lg:sticky lg:top-4">
+    <div className="grid grid-cols-1 lg:grid-cols-[340px_1fr] gap-3.5 items-start lg:items-stretch lg:h-full lg:min-h-0">
+      <div className="flex flex-col gap-3.5 lg:h-full lg:min-h-0 lg:overflow-y-auto lg:pr-0.5">
         <div className="panel gap-2 py-3">
           <div className="ptitle text-[#c4b5fd]">+ Legg til bolk</div>
           <input
@@ -1436,26 +1439,38 @@ export default function ControlPanel({
               felt med egen etikettlinje under — sparer vertikal plass.
               Tallet er midtstilt i feltet UAVHENGIG av nettleserens
               opp/ned-piler (skjult via .no-spinner), som ellers dytter
-              den synlige teksten ut av senter. */}
+              den synlige teksten ut av senter. VIKTIG: fast bredde ligger
+              på wrapper-DIV-en, ikke på selve .input-elementet — samme
+              CSS-kollisjon som tidligere (.input sin egen `width: 100%`
+              vinner over en Tailwind-breddeklasse på SAMME element) —
+              se kjent-hull-notatet i statusdokumentet. Maks 3 sifre. */}
           <div className="flex items-center gap-1.5">
-            <input
-              className="input no-spinner text-center w-14 flex-none"
-              type="number"
-              min={0}
-              placeholder="0"
-              value={newMin}
-              onChange={(e) => setNewMin(e.target.value)}
-            />
+            <div className="w-11 flex-none">
+              <input
+                className="input no-spinner text-center"
+                type="number"
+                min={0}
+                placeholder="0"
+                value={newMin}
+                onChange={(e) =>
+                  setNewMin(e.target.value.replace(/[^0-9]/g, "").slice(0, 3))
+                }
+              />
+            </div>
             <span className="text-[11px] text-[#555] flex-shrink-0">min</span>
-            <input
-              className="input no-spinner text-center w-14 flex-none"
-              type="number"
-              min={0}
-              max={59}
-              placeholder="0"
-              value={newSec}
-              onChange={(e) => setNewSec(e.target.value)}
-            />
+            <div className="w-11 flex-none">
+              <input
+                className="input no-spinner text-center"
+                type="number"
+                min={0}
+                max={59}
+                placeholder="0"
+                value={newSec}
+                onChange={(e) =>
+                  setNewSec(e.target.value.replace(/[^0-9]/g, "").slice(0, 2))
+                }
+              />
+            </div>
             <span className="text-[11px] text-[#555] flex-shrink-0">sek</span>
           </div>
           <input
@@ -1468,7 +1483,7 @@ export default function ControlPanel({
           {agenda.some((a) => a.is_section) && (
             <div>
               <div className="text-[10px] text-[#555] uppercase tracking-wider mb-1">
-                Bolk
+                Plassering
               </div>
               <select
                 className="input"
@@ -1534,9 +1549,9 @@ export default function ControlPanel({
         </div>
       </div>
 
-      <div className="panel gap-3.5">
+      <div className="panel gap-3.5 lg:h-full lg:min-h-0">
         <div className="ptitle">Program</div>
-        {renderAgendaList("max-h-[75vh]")}
+        {renderAgendaList("max-h-[75vh] lg:max-h-none lg:flex-1 lg:min-h-0")}
       </div>
     </div>
   );
@@ -1932,7 +1947,7 @@ export default function ControlPanel({
              Resten av kontrollpanelet (klokke, status, transport, melding
              til visningsskjerm) er bevisst ikke synlig her — dette er kun
              for å bygge opp programmet før man faktisk er i gang. */
-          <div className="w-full flex-1 min-h-0 overflow-y-auto">{editProgramPanel}</div>
+          <div className="w-full flex-1 min-h-0 overflow-y-auto lg:overflow-hidden">{editProgramPanel}</div>
         ) : (
         <div className="grid grid-cols-1 grid-rows-[minmax(0,1fr)_minmax(0,1fr)] lg:grid-cols-[2fr_1fr] lg:grid-rows-1 gap-4 flex-1 min-h-0">
             {/* VENSTRE PÅ DESKTOP / NEDERST PÅ MOBIL: PROGRAM — punktlisten
@@ -2442,22 +2457,22 @@ function AgendaRow({
             trykker Start og feltene fylles med faktiske klokkeslett. Litt
             mer luft + tynne skillestreker mellom dem, samme mønster som
             kolonneoverskriftene over. */}
-        <div className="flex items-center gap-2.5 flex-shrink-0">
-          <span className="text-[10px] text-[#3a3a3a] font-mono w-[100px] text-right truncate">
+        <div className="flex items-center gap-4 flex-shrink-0">
+          <span className="text-[10px] text-[#888] font-mono w-[100px] text-right truncate">
             {fmtDuration(item.duration_secs)}
           </span>
-          <span className="text-[10px] text-[#3a3a3a] font-mono w-[46px] text-right border-l border-[#242424] pl-2.5">
+          <span className="text-[10px] text-[#888] font-mono w-[46px] text-right border-l border-[#454545] pl-3">
             {clock || "–"}
           </span>
           <span
-            className={`text-[10px] font-mono w-[46px] text-right border-l border-[#242424] pl-2.5 ${
-              newClock && newClock !== clock ? (isLate ? "text-[#f87171]" : "text-[#4ade80]") : "text-[#3a3a3a]"
+            className={`text-[10px] font-mono w-[46px] text-right border-l border-[#454545] pl-3 ${
+              newClock && newClock !== clock ? (isLate ? "text-[#f87171]" : "text-[#4ade80]") : "text-[#888]"
             }`}
           >
             {newClock || clock || "–"}
           </span>
         </div>
-        <div className="flex gap-0.5 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+        <div className="flex gap-0.5 flex-shrink-0 ml-2.5" onClick={(e) => e.stopPropagation()}>
           <button className="btn xs" onClick={() => moveUp(i)}>↑</button>
           <button className="btn xs" onClick={() => moveDown(i)}>↓</button>
           <button className="btn xs" onClick={() => openEdit(i)}>✎</button>
