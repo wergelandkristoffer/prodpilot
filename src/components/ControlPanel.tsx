@@ -175,6 +175,10 @@ export default function ControlPanel({
   } | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Egen fil-input for import/eksport-boksen i "Rediger program"-visningen
+  // (samme handlers/status som Innstillinger-modalen, men modalen sin
+  // skjulte <input type="file"> finnes bare i DOM-en mens modalen er åpen).
+  const fileInputRefEdit = useRef<HTMLInputElement>(null);
   const linkMenuRef = useRef<HTMLDivElement>(null);
   const logoInputRef = useRef<HTMLInputElement>(null);
   const autostartFiredRef = useRef(false);
@@ -1316,9 +1320,13 @@ export default function ControlPanel({
         <span className="w-[3px] flex-shrink-0" />
         <span className="w-1.5 flex-shrink-0" />
         <span className="flex-1 min-w-0" />
-        <span className="w-[100px] text-right flex-shrink-0">Varighet</span>
-        <span className="w-[46px] text-right flex-shrink-0">Planlagt</span>
-        <span className="w-[46px] text-right flex-shrink-0">Ny tid</span>
+        {/* Litt mer luft + tynne skillestreker mellom de tre tallkolonnene,
+            så de ikke flyter sammen visuelt. */}
+        <div className="flex items-center gap-2.5 flex-shrink-0">
+          <span className="w-[100px] text-right">Varighet</span>
+          <span className="w-[46px] text-right border-l border-[#242424] pl-2.5">Planlagt</span>
+          <span className="w-[46px] text-right border-l border-[#242424] pl-2.5">Ny tid</span>
+        </div>
         <span className="w-[135px] flex-shrink-0" />
       </div>
 
@@ -1424,30 +1432,31 @@ export default function ControlPanel({
             onChange={(e) => setNewName(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && addItem()}
           />
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <input
-                className="input text-center"
-                type="number"
-                min={0}
-                placeholder="0"
-                value={newMin}
-                onChange={(e) => setNewMin(e.target.value)}
-              />
-              <div className="text-[10px] text-[#555] text-center mt-1">minutter</div>
-            </div>
-            <div>
-              <input
-                className="input text-center"
-                type="number"
-                min={0}
-                max={59}
-                placeholder="0"
-                value={newSec}
-                onChange={(e) => setNewSec(e.target.value)}
-              />
-              <div className="text-[10px] text-[#555] text-center mt-1">sekunder</div>
-            </div>
+          {/* Kompakt "XX min XX sek" på én linje i stedet for to store
+              felt med egen etikettlinje under — sparer vertikal plass.
+              Tallet er midtstilt i feltet UAVHENGIG av nettleserens
+              opp/ned-piler (skjult via .no-spinner), som ellers dytter
+              den synlige teksten ut av senter. */}
+          <div className="flex items-center gap-1.5">
+            <input
+              className="input no-spinner text-center w-14 flex-none"
+              type="number"
+              min={0}
+              placeholder="0"
+              value={newMin}
+              onChange={(e) => setNewMin(e.target.value)}
+            />
+            <span className="text-[11px] text-[#555] flex-shrink-0">min</span>
+            <input
+              className="input no-spinner text-center w-14 flex-none"
+              type="number"
+              min={0}
+              max={59}
+              placeholder="0"
+              value={newSec}
+              onChange={(e) => setNewSec(e.target.value)}
+            />
+            <span className="text-[11px] text-[#555] flex-shrink-0">sek</span>
           </div>
           <input
             className="input"
@@ -1480,6 +1489,48 @@ export default function ControlPanel({
           <button className="btn blue" onClick={addItem}>
             Legg til punkt
           </button>
+        </div>
+
+        {/* Samme importer/eksporter-boks som ligger i Innstillinger — lagt
+            til her nederst også, slik at man slipper å forlate
+            redigeringsvisningen for å importere et program mens man bygger
+            det opp. Egen fil-input (fileInputRefEdit) siden modalens
+            skjulte <input type="file"> ikke finnes i DOM-en her. */}
+        <div className="panel gap-2.5">
+          <div className="ptitle">Importer / eksporter program</div>
+          <div
+            className={`rounded-md border border-dashed ${
+              dragOver ? "border-[#2563eb] text-[#93c5fd]" : "border-[#2a2a2a] text-[#555]"
+            } p-2 text-center text-[11px] cursor-pointer transition-colors`}
+            onClick={() => fileInputRefEdit.current?.click()}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setDragOver(true);
+            }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDragOver(false);
+              if (e.dataTransfer.files[0]) parseFile(e.dataTransfer.files[0]);
+            }}
+          >
+            {importStatus}
+          </div>
+          <input
+            ref={fileInputRefEdit}
+            type="file"
+            accept=".xlsx,.csv,.xls"
+            className="hidden"
+            onChange={(e) => e.target.files?.[0] && parseFile(e.target.files[0])}
+          />
+          <div className="grid grid-cols-2 gap-1.5">
+            <button className="btn xs" onClick={downloadTemplate}>
+              Last ned importmal
+            </button>
+            <button className="btn xs" onClick={exportProgram}>
+              Eksporter program
+            </button>
+          </div>
         </div>
       </div>
 
@@ -1884,17 +1935,21 @@ export default function ControlPanel({
           <div className="w-full flex-1 min-h-0 overflow-y-auto">{editProgramPanel}</div>
         ) : (
         <div className="grid grid-cols-1 grid-rows-[minmax(0,1fr)_minmax(0,1fr)] lg:grid-cols-[2fr_1fr] lg:grid-rows-1 gap-4 flex-1 min-h-0">
-            {/* VENSTRE: PROGRAM — punktlisten scroller internt i sin egen
-                boks i stedet for at hele siden vokser/blar. */}
-            {programPanel}
+            {/* VENSTRE PÅ DESKTOP / NEDERST PÅ MOBIL: PROGRAM — punktlisten
+                scroller internt i sin egen boks i stedet for at hele siden
+                vokser/blar. `order` snur rekkefølgen kun på mobil (én
+                kolonne), slik at kontrollene kommer først og programmet
+                under — desktop-layouten (venstre/høyre) er uendret. */}
+            <div className="order-2 lg:order-1 min-h-0 flex flex-col">{programPanel}</div>
 
-            {/* HØYRE: KONTROLLER — hele kolonnen scroller internt (dersom
-                den ikke får plass) i stedet for at siden gjør det. ALLE felt
-                under er nå alltid synlige (viser "--:--"/"–" når det ikke
-                finnes data ennå) i stedet for å dukke opp/forsvinne — det var
-                det som fikk hele siden til å "hoppe" idet man trykket Start
-                eller sendte en melding. */}
-            <div className="flex flex-col gap-3 min-h-0 overflow-y-auto pr-0.5">
+            {/* HØYRE PÅ DESKTOP / ØVERST PÅ MOBIL: KONTROLLER — hele
+                kolonnen scroller internt (dersom den ikke får plass) i
+                stedet for at siden gjør det. ALLE felt under er nå alltid
+                synlige (viser "--:--"/"–" når det ikke finnes data ennå) i
+                stedet for å dukke opp/forsvinne — det var det som fikk hele
+                siden til å "hoppe" idet man trykket Start eller sendte en
+                melding. */}
+            <div className="order-1 lg:order-2 flex flex-col gap-3 min-h-0 overflow-y-auto pr-0.5">
               {/* Slått sammen til ÉN boks: klokkeslett til venstre, resten
                   (planlagt slutt / ny tid / tid igjen av programmet) til
                   høyre — i stedet for to separate bokser.
@@ -2077,6 +2132,17 @@ export default function ControlPanel({
         .input:focus {
           outline: none;
           border-color: #3a3a3a;
+        }
+        /* Skjuler nettleserens opp/ned-piler på tall-felt, slik at selve
+           tallet faktisk midtstiller seg i feltet (pilene tar ellers plass
+           til høyre og dytter den synlige teksten ut av senter). */
+        .input.no-spinner::-webkit-outer-spin-button,
+        .input.no-spinner::-webkit-inner-spin-button {
+          -webkit-appearance: none;
+          margin: 0;
+        }
+        .input.no-spinner {
+          -moz-appearance: textfield;
         }
         .btn {
           border-radius: 6px;
@@ -2373,20 +2439,24 @@ function AgendaRow({
         {/* Tre FASTE kolonner (Varighet / Planlagt / Ny tid) — alltid
             rendret med samme bredde, med "–" som plassholder når det ikke
             finnes data ennå, slik at raden aldri endrer form/bredde når man
-            trykker Start og feltene fylles med faktiske klokkeslett. */}
-        <span className="text-[10px] text-[#3a3a3a] font-mono flex-shrink-0 w-[100px] text-right truncate">
-          {fmtDuration(item.duration_secs)}
-        </span>
-        <span className="text-[10px] text-[#3a3a3a] font-mono flex-shrink-0 w-[46px] text-right">
-          {clock || "–"}
-        </span>
-        <span
-          className={`text-[10px] font-mono flex-shrink-0 w-[46px] text-right ${
-            newClock && newClock !== clock ? (isLate ? "text-[#f87171]" : "text-[#4ade80]") : "text-[#3a3a3a]"
-          }`}
-        >
-          {newClock || clock || "–"}
-        </span>
+            trykker Start og feltene fylles med faktiske klokkeslett. Litt
+            mer luft + tynne skillestreker mellom dem, samme mønster som
+            kolonneoverskriftene over. */}
+        <div className="flex items-center gap-2.5 flex-shrink-0">
+          <span className="text-[10px] text-[#3a3a3a] font-mono w-[100px] text-right truncate">
+            {fmtDuration(item.duration_secs)}
+          </span>
+          <span className="text-[10px] text-[#3a3a3a] font-mono w-[46px] text-right border-l border-[#242424] pl-2.5">
+            {clock || "–"}
+          </span>
+          <span
+            className={`text-[10px] font-mono w-[46px] text-right border-l border-[#242424] pl-2.5 ${
+              newClock && newClock !== clock ? (isLate ? "text-[#f87171]" : "text-[#4ade80]") : "text-[#3a3a3a]"
+            }`}
+          >
+            {newClock || clock || "–"}
+          </span>
+        </div>
         <div className="flex gap-0.5 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
           <button className="btn xs" onClick={() => moveUp(i)}>↑</button>
           <button className="btn xs" onClick={() => moveDown(i)}>↓</button>
