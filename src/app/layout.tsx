@@ -7,8 +7,16 @@ import "./globals.css";
 // senere hvis dere vil selv-hoste Inter.
 
 export const metadata: Metadata = {
-  title: "ProdPilot",
+  title: "Prodpilot",
   description: "Sanntids programstyring for events og bryllup.",
+  icons: {
+    icon: [
+      // Svart merke på lys bakgrunn, hvitt merke på mørk bakgrunn — nettleseren
+      // velger automatisk ut fra brukerens system-/nettleserinnstilling.
+      { url: "/favicon-light.png", media: "(prefers-color-scheme: light)" },
+      { url: "/favicon-dark.png", media: "(prefers-color-scheme: dark)" },
+    ],
+  },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

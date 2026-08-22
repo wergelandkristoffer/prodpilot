@@ -7,7 +7,7 @@ const eslintConfig = defineConfig([
   ...nextTs,
   {
     rules: {
-      // ProdPilot is a real-time countdown/clock app: reading Date.now() and
+      // Prodpilot is a real-time countdown/clock app: reading Date.now() and
       // syncing local component state to an external source (Supabase,
       // window.location, setInterval/requestAnimationFrame ticks) inside
       // effects is the correct pattern here, not an anti-pattern. These two

@@ -15,7 +15,7 @@ export default function GlobalError({
   reset: () => void;
 }) {
   useEffect(() => {
-    console.error("Uventet global feil i ProdPilot:", error);
+    console.error("Uventet global feil i Prodpilot:", error);
   }, [error]);
 
   return (

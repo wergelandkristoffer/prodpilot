@@ -1768,7 +1768,7 @@ export default function ControlPanel({
             Prosjekter
           </button>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/prodpilot-logo.png" alt="ProdPilot" className="h-6 w-auto" />
+          <img src="/prodpilot-logo.png" alt="Prodpilot" className="h-6 w-auto" />
         </div>
 
         {/* PROSJEKTNAVN — tittel på egen linje, knappene i to grupper som

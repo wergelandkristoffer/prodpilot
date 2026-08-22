@@ -1,4 +1,4 @@
-# ProdPilot
+# Prodpilot
 
 Sanntids programstyringsverktøy for events og bryllup. Tre visninger i én app,
 synkronisert via Supabase Realtime:

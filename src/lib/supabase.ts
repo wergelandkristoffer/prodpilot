@@ -11,7 +11,7 @@ if (!isSupabaseConfigured) {
   // createClient() kaster ("supabaseUrl is required") og krasjer hele
   // appen ved SSR — se .env.local.example for oppsett.
   console.warn(
-    "[ProdPilot] Mangler NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY. " +
+    "[Prodpilot] Mangler NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY. " +
       "Kopier .env.local.example til .env.local og fyll inn verdiene fra Supabase-prosjektet ditt."
   );
 }

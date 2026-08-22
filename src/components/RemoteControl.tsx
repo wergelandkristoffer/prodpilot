@@ -298,7 +298,7 @@ export default function RemoteControl({ sessionId }: { sessionId: string }) {
     <div className="h-dvh w-full overflow-hidden bg-[#080808] text-[#d8d8d8] p-4 flex flex-col gap-3 max-w-md mx-auto">
       <div className="flex items-center justify-between flex-shrink-0">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/prodpilot-logo.png" alt="ProdPilot" className="h-5 w-auto" />
+        <img src="/prodpilot-logo.png" alt="Prodpilot" className="h-5 w-auto" />
         <span className="text-[10px] font-semibold rounded-full border border-[#1a3a6a] bg-[#080f20] text-[#93c5fd] px-2.5 py-0.5">
           Fjernkontroll
         </span>

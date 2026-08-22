@@ -1,4 +1,4 @@
--- ProdPilot – Supabase-skjema
+-- Prodpilot – Supabase-skjema
 -- Kjør dette i Supabase Dashboard → SQL Editor (eller via `supabase db push`).
 -- Trygt å kjøre flere ganger (bruker "if not exists" der det er mulig).
 

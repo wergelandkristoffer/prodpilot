@@ -24,7 +24,7 @@ export default function Error({
   reset: () => void;
 }) {
   useEffect(() => {
-    console.error("Uventet feil i ProdPilot:", error);
+    console.error("Uventet feil i Prodpilot:", error);
   }, [error]);
 
   return (

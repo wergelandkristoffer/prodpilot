@@ -119,7 +119,7 @@ function LoginForm() {
     <div className="min-h-screen flex items-center justify-center bg-[#080808] px-6">
       <div className="w-full max-w-sm rounded-2xl border border-[#1e1e1e] bg-[#0e0e0e] p-6 flex flex-col gap-4">
         <div className="text-center mb-1">
-          <div className="text-white font-semibold text-lg">ProdPilot</div>
+          <div className="text-white font-semibold text-lg">Prodpilot</div>
           <div className="text-[#555] text-xs mt-1">Logg inn for å se og redigere programmene dine</div>
         </div>
 
