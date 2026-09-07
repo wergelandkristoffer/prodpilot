@@ -1315,19 +1315,34 @@ export default function ControlPanel({
           klokke-anker finnes) og bredden på selve kolonnene under er FAST,
           slik at ingenting her endrer form/hopper når man trykker Start og
           feltene fylles med faktiske klokkeslett. */}
-      <div className="flex items-center gap-1.5 px-2.5 text-[9px] text-[#7d7d7d] uppercase tracking-wide">
+      <div className="flex items-stretch gap-1.5 px-2.5 text-[9px] text-[#7d7d7d] uppercase tracking-wide">
         <span className="min-w-[18px] flex-shrink-0" />
         <span className="w-[3px] flex-shrink-0" />
         <span className="w-1.5 flex-shrink-0" />
         <span className="flex-1 min-w-0" />
-        {/* Litt mer luft + tynne skillestreker mellom de tre tallkolonnene,
-            så de ikke flyter sammen visuelt. */}
-        <div className="flex items-center gap-4 flex-shrink-0">
-          <span className="w-[100px] text-center">Varighet</span>
-          <span className="w-[80px] text-center border-l border-[#454545] px-3">Planlagt</span>
-          <span className="w-[80px] text-center border-l border-[#454545] px-3">Ny tid</span>
+        {/* Ekte, fullhøyde kolonnestriper: boksene her strekker seg over
+            HELE radens høyde (ikke bare tekstlinjen) og teksten
+            midtstilles med flex i stedet for text-align, slik at
+            skillelinjene ser ut som ordentlige kolonnestreker — samme
+            oppskrift (bredde/padding/stretch) brukes i AgendaRow og
+            SectionRow under, så stripene fortsetter rett ned gjennom
+            hele listen uten å flyte fra hverandre. */}
+        <div className="flex items-stretch self-stretch gap-4 flex-shrink-0">
+          <span className="w-[100px] flex items-center justify-center">Varighet</span>
+          <span className="w-[80px] flex items-center justify-center border-l border-[#454545] px-3">Planlagt</span>
+          <span className="w-[80px] flex items-center justify-center border-l border-[#454545] px-3">Ny tid</span>
         </div>
-        <span className="w-[145px] flex-shrink-0" />
+        {/* Usynlig, men EKTE kopi av knapperaden (samme 5 knapper som
+            hver punkt-rad har) i stedet for en anslått fast pikselbredde
+            — garanterer at kolonnestripene over alltid lander nøyaktig
+            der de faktiske kolonnene i radene under gjør. */}
+        <div className="flex gap-0.5 flex-shrink-0 ml-2.5 invisible" aria-hidden="true">
+          <button className="btn xs" tabIndex={-1}>↑</button>
+          <button className="btn xs" tabIndex={-1}>↓</button>
+          <button className="btn xs" tabIndex={-1}>✎</button>
+          <button className="btn xs" tabIndex={-1}>▶</button>
+          <button className="btn xs" tabIndex={-1}>✕</button>
+        </div>
       </div>
 
       <div className={`flex flex-col gap-2 ${maxHeightClass} overflow-y-auto pr-0.5`}>
@@ -2404,14 +2419,14 @@ function SectionRow({
           usymmetrisk plassering avhengig av navnelengde). Planlagt/Ny tid
           har ingen egen verdi for en bolk, men vises som "–" for at
           kolonnene skal se ut som del av samme rutenett som radene under. */}
-      <div className="flex items-center gap-4 flex-shrink-0">
-        <span className="text-[10px] text-[#888] font-mono w-[100px] text-center truncate">
+      <div className="flex items-stretch self-stretch gap-4 flex-shrink-0">
+        <span className="text-[10px] text-[#888] font-mono w-[100px] flex items-center justify-center truncate">
           {timeLabel || secLabel}
         </span>
-        <span className="text-[10px] text-[#7d7d7d] font-mono w-[80px] text-center border-l border-[#454545] px-3">
+        <span className="text-[10px] text-[#7d7d7d] font-mono w-[80px] flex items-center justify-center border-l border-[#454545] px-3">
           –
         </span>
-        <span className="text-[10px] text-[#7d7d7d] font-mono w-[80px] text-center border-l border-[#454545] px-3">
+        <span className="text-[10px] text-[#7d7d7d] font-mono w-[80px] flex items-center justify-center border-l border-[#454545] px-3">
           –
         </span>
       </div>
@@ -2476,15 +2491,15 @@ function AgendaRow({
             trykker Start og feltene fylles med faktiske klokkeslett. Litt
             mer luft + tynne skillestreker mellom dem, samme mønster som
             kolonneoverskriftene over. */}
-        <div className="flex items-center gap-4 flex-shrink-0">
-          <span className="text-[10px] text-[#888] font-mono w-[100px] text-center truncate">
+        <div className="flex items-stretch self-stretch gap-4 flex-shrink-0">
+          <span className="text-[10px] text-[#888] font-mono w-[100px] flex items-center justify-center truncate">
             {fmtDuration(item.duration_secs)}
           </span>
-          <span className="text-[10px] text-[#888] font-mono w-[80px] text-center border-l border-[#454545] px-3">
+          <span className="text-[10px] text-[#888] font-mono w-[80px] flex items-center justify-center border-l border-[#454545] px-3">
             {clock || "–"}
           </span>
           <span
-            className={`text-[10px] font-mono w-[80px] text-center border-l border-[#454545] px-3 ${
+            className={`text-[10px] font-mono w-[80px] flex items-center justify-center border-l border-[#454545] px-3 ${
               newClock && newClock !== clock ? (isLate ? "text-[#f87171]" : "text-[#4ade80]") : "text-[#888]"
             }`}
           >
