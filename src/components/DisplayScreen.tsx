@@ -133,14 +133,14 @@ export default function DisplayScreen({ sessionId }: { sessionId: string }) {
   }
   if (notFound) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-black text-[#555] text-sm">
+      <div className="min-h-screen flex items-center justify-center bg-black text-[#8a8a8a] text-sm">
         Fant ingen slik visning.
       </div>
     );
   }
   if (!session) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-black text-[#555] text-sm">
+      <div className="min-h-screen flex items-center justify-center bg-black text-[#8a8a8a] text-sm">
         Kobler til…
       </div>
     );

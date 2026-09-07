@@ -267,14 +267,14 @@ export default function RemoteControl({ sessionId }: { sessionId: string }) {
   }
   if (notFound) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#080808] text-[#555] text-sm px-6 text-center">
+      <div className="min-h-screen flex items-center justify-center bg-[#080808] text-[#8a8a8a] text-sm px-6 text-center">
         Fant ingen slik visning. Sjekk lenken fra kontrollpanelet.
       </div>
     );
   }
   if (!session) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#080808] text-[#555] text-sm">
+      <div className="min-h-screen flex items-center justify-center bg-[#080808] text-[#8a8a8a] text-sm">
         Kobler til…
       </div>
     );
@@ -306,14 +306,14 @@ export default function RemoteControl({ sessionId }: { sessionId: string }) {
 
       <div className="rounded-2xl border border-[#1e1e1e] bg-[#0e0e0e] p-5 flex flex-col items-center gap-2 text-center flex-shrink-0">
         {session.active_section && (
-          <div className="text-[10px] uppercase tracking-[0.2em] text-[#555]">{session.active_section}</div>
+          <div className="text-[10px] uppercase tracking-[0.2em] text-[#8a8a8a]">{session.active_section}</div>
         )}
         <div className="text-lg font-semibold text-white">{hasActive ? session.active_label : "Ingen aktiv"}</div>
         {/* Farges ALDRI etter punktets/bolkens egen farge lenger — kun hvit
             (normalt) og rødt (overtid), som resten av tidtakerne i appen. */}
         <div
           className={`text-6xl font-bold tabular-nums ${
-            isOvertime ? "text-[#f87171]" : hasActive ? "text-white" : "text-[#333]"
+            isOvertime ? "text-[#f87171]" : hasActive ? "text-white" : "text-[#707070]"
           }`}
         >
           {hasActive ? (isOvertime ? "+" : "") + fmt(absRem) : "--:--"}
@@ -322,7 +322,7 @@ export default function RemoteControl({ sessionId }: { sessionId: string }) {
           <span
             className={`text-xs font-semibold px-3 py-1 rounded-full border ${
               absStatus < 2
-                ? "border-[#2a2a2a] text-[#555]"
+                ? "border-[#2a2a2a] text-[#8a8a8a]"
                 : liveStatus > 0
                 ? "border-[#4a1515] text-[#f87171] bg-[#1a0808]"
                 : "border-[#1a4a2a] text-[#4ade80] bg-[#0a1f0a]"
@@ -406,11 +406,11 @@ export default function RemoteControl({ sessionId }: { sessionId: string }) {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between">
-              <div className="text-[9px] font-bold text-[#555] uppercase tracking-wider">
+              <div className="text-[9px] font-bold text-[#8a8a8a] uppercase tracking-wider">
                 Melding til visningsskjerm
               </div>
               <button
-                className="text-[#555] hover:text-white text-lg leading-none"
+                className="text-[#8a8a8a] hover:text-white text-lg leading-none"
                 onClick={() => setMsgPopupOpen(false)}
               >
                 ×
@@ -463,7 +463,7 @@ export default function RemoteControl({ sessionId }: { sessionId: string }) {
             onClick={() => setItemsLocked((v) => !v)}
             className={`flex items-center gap-1 text-[9px] font-semibold px-2 py-1 rounded-full border ${
               itemsLocked
-                ? "border-[#2a2a2a] text-[#666] bg-[#141414]"
+                ? "border-[#2a2a2a] text-[#969696] bg-[#141414]"
                 : "border-[#4a1515] text-[#f87171] bg-[#1a0808]"
             }`}
           >
@@ -486,11 +486,11 @@ export default function RemoteControl({ sessionId }: { sessionId: string }) {
           </div>
         )}
         <div className="flex flex-col gap-1 flex-1 min-h-0 overflow-y-auto">
-          {agenda.length === 0 && <div className="text-xs text-[#444]">Ingen punkter enda.</div>}
+          {agenda.length === 0 && <div className="text-xs text-[#7d7d7d]">Ingen punkter enda.</div>}
           {agenda.map((item, i) => {
             if (item.is_section) {
               return (
-                <div key={item.id} className="text-[10px] font-semibold text-[#666] uppercase tracking-wide pt-2">
+                <div key={item.id} className="text-[10px] font-semibold text-[#969696] uppercase tracking-wide pt-2">
                   {item.name}
                 </div>
               );
@@ -517,9 +517,9 @@ export default function RemoteControl({ sessionId }: { sessionId: string }) {
                 <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: item.color }} />
                 <span className="flex-1 truncate">{item.name}</span>
                 <span className="flex flex-col items-end gap-0.5 flex-shrink-0">
-                  <span className="text-[10px] text-[#444] font-mono">{fmtDuration(item.duration_secs)}</span>
+                  <span className="text-[10px] text-[#7d7d7d] font-mono">{fmtDuration(item.duration_secs)}</span>
                   {plannedClock && (
-                    <span className="text-[9px] font-mono text-[#555]">
+                    <span className="text-[9px] font-mono text-[#8a8a8a]">
                       Kl. {plannedClock}
                       {showNewClock && (
                         <span className={drift > 0 ? "text-[#f87171]" : "text-[#4ade80]"}> · {newClock}</span>

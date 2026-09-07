@@ -31,7 +31,7 @@ export default function AuthGate({ initialSessionId }: { initialSessionId?: stri
   if (authSession === undefined) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#080808]">
-        <div className="text-sm text-[#555]">Laster…</div>
+        <div className="text-sm text-[#8a8a8a]">Laster…</div>
       </div>
     );
   }
@@ -120,13 +120,13 @@ function LoginForm() {
       <div className="w-full max-w-sm rounded-2xl border border-[#1e1e1e] bg-[#0e0e0e] p-6 flex flex-col gap-4">
         <div className="text-center mb-1">
           <div className="text-white font-semibold text-lg">Prodpilot</div>
-          <div className="text-[#555] text-xs mt-1">Logg inn for å se og redigere programmene dine</div>
+          <div className="text-[#8a8a8a] text-xs mt-1">Logg inn for å se og redigere programmene dine</div>
         </div>
 
         {step === "email" && (
           <form onSubmit={sendCode} className="flex flex-col gap-3">
             <label className="flex flex-col gap-1.5">
-              <span className="text-[10px] font-bold text-[#555] uppercase tracking-wider">E-post</span>
+              <span className="text-[10px] font-bold text-[#8a8a8a] uppercase tracking-wider">E-post</span>
               <input
                 type="email"
                 required
@@ -155,7 +155,7 @@ function LoginForm() {
               Sjekk innboksen (og evt. spam).
             </div>
             <label className="flex flex-col gap-1.5">
-              <span className="text-[10px] font-bold text-[#555] uppercase tracking-wider">Kode</span>
+              <span className="text-[10px] font-bold text-[#8a8a8a] uppercase tracking-wider">Kode</span>
               <input
                 type="text"
                 inputMode="numeric"
@@ -176,7 +176,7 @@ function LoginForm() {
             >
               {busy ? "Sjekker…" : "Logg inn"}
             </button>
-            <div className="flex items-center justify-between text-[10px] text-[#555]">
+            <div className="flex items-center justify-between text-[10px] text-[#8a8a8a]">
               <button
                 type="button"
                 className="hover:text-[#888] transition-colors"
@@ -191,7 +191,7 @@ function LoginForm() {
               <button
                 type="button"
                 disabled={resendCooldown > 0 || busy}
-                className="hover:text-[#888] transition-colors disabled:opacity-40 disabled:hover:text-[#555]"
+                className="hover:text-[#888] transition-colors disabled:opacity-40 disabled:hover:text-[#8a8a8a]"
                 onClick={() => sendCode()}
               >
                 {resendCooldown > 0 ? `Send på nytt (${resendCooldown}s)` : "Send på nytt"}

@@ -136,7 +136,7 @@ export default function ProjectSettingsModal({
         {/* Visningsskjerm */}
         <div className="panel">
           <div className="ptitle">Visningsskjerm</div>
-          <div className="text-[10px] text-[#555] uppercase tracking-wider mb-0.5">Bakgrunnsfarge</div>
+          <div className="text-[10px] text-[#8a8a8a] uppercase tracking-wider mb-0.5">Bakgrunnsfarge</div>
           <div className="grid grid-cols-4 gap-2">
             {(
               [
@@ -163,7 +163,7 @@ export default function ProjectSettingsModal({
             ))}
           </div>
 
-          <div className="text-[10px] text-[#555] uppercase tracking-wider mt-1 mb-0.5">Logo</div>
+          <div className="text-[10px] text-[#8a8a8a] uppercase tracking-wider mt-1 mb-0.5">Logo</div>
           <div className="flex items-center gap-2">
             <button className="btn sm" onClick={() => logoInputRef.current?.click()}>
               Velg logo (PNG/JPG)
@@ -190,7 +190,7 @@ export default function ProjectSettingsModal({
         {/* Starttidspunkt */}
         <div className="panel">
           <div className="ptitle">Starttidspunkt for prosjekt</div>
-          <p className="text-[10px] text-[#444] leading-relaxed">
+          <p className="text-[10px] text-[#7d7d7d] leading-relaxed">
             Sett dato og tid for første programpunkt.
           </p>
           <div className="grid grid-cols-2 gap-1.5">
@@ -201,7 +201,7 @@ export default function ProjectSettingsModal({
                 value={schedDate}
                 onChange={(e) => setSchedDate(e.target.value)}
               />
-              <div className="text-[10px] text-[#444] text-center mt-0.5">dato</div>
+              <div className="text-[10px] text-[#7d7d7d] text-center mt-0.5">dato</div>
             </div>
             <div>
               <input
@@ -210,7 +210,7 @@ export default function ProjectSettingsModal({
                 value={schedTime}
                 onChange={(e) => setSchedTime(e.target.value)}
               />
-              <div className="text-[10px] text-[#444] text-center mt-0.5">klokkeslett</div>
+              <div className="text-[10px] text-[#7d7d7d] text-center mt-0.5">klokkeslett</div>
             </div>
           </div>
 
@@ -235,7 +235,7 @@ export default function ProjectSettingsModal({
             )}
           </div>
           {session.program_scheduled_ms > 0 && (
-            <div className="text-[11px] text-[#555]">
+            <div className="text-[11px] text-[#8a8a8a]">
               Planlagt start: {new Date(session.program_scheduled_ms).toLocaleString("no-NO")}
             </div>
           )}
@@ -265,7 +265,7 @@ export default function ProjectSettingsModal({
           <div className="ptitle">Importer / eksporter program</div>
           <div
             className={`rounded-md border border-dashed ${
-              dragOver ? "border-[#2563eb] text-[#93c5fd]" : "border-[#2a2a2a] text-[#555]"
+              dragOver ? "border-[#2563eb] text-[#93c5fd]" : "border-[#2a2a2a] text-[#8a8a8a]"
             } p-2 text-center text-[11px] cursor-pointer transition-colors`}
             onClick={() => fileInputRef.current?.click()}
             onDragOver={(e) => {

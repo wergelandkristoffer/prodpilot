@@ -1150,7 +1150,7 @@ export default function ControlPanel({
             Sjekk at <code className="text-[#4ade80]">.env.local</code> har riktig URL og
             nøkkel, og at Supabase-prosjektet ditt viser som aktivt (grønt) i dashbordet.
           </p>
-          <p className="text-[10px] text-[#555] font-mono break-all bg-[#0e0e0e] border border-[#1e1e1e] rounded-md p-2.5">
+          <p className="text-[10px] text-[#8a8a8a] font-mono break-all bg-[#0e0e0e] border border-[#1e1e1e] rounded-md p-2.5">
             {initError}
           </p>
         </div>
@@ -1160,7 +1160,7 @@ export default function ControlPanel({
 
   if (!ready || !session) {
     return (
-      <div className="min-h-screen flex items-center justify-center text-sm text-[#555]">
+      <div className="min-h-screen flex items-center justify-center text-sm text-[#8a8a8a]">
         Kobler til…
       </div>
     );
@@ -1228,17 +1228,17 @@ export default function ControlPanel({
       </div>
       <div className="flex flex-col gap-1.5 flex-1 min-w-0">
         <div className="flex items-center justify-between gap-2">
-          <span className="text-[10px] text-[#555] flex-shrink-0">Planlagt slutt</span>
+          <span className="text-[10px] text-[#8a8a8a] flex-shrink-0">Planlagt slutt</span>
           <span className="text-[11px] text-[#888] font-mono tabular-nums">
             {plannedEndMs != null ? fmtClock(plannedEndMs) : "--:--"}
           </span>
         </div>
         <div className="flex items-center justify-between gap-2">
-          <span className="text-[10px] text-[#555] flex-shrink-0">Ny tid</span>
+          <span className="text-[10px] text-[#8a8a8a] flex-shrink-0">Ny tid</span>
           <span
             className={`text-[11px] font-mono font-semibold tabular-nums ${
               estimatedEndMs == null
-                ? "text-[#555]"
+                ? "text-[#8a8a8a]"
                 : absStatus < 2
                 ? "text-[#888]"
                 : liveStatus > 0
@@ -1250,7 +1250,7 @@ export default function ControlPanel({
           </span>
         </div>
         <div className="flex items-center justify-between gap-2 border-t border-[#1e1e1e] pt-1.5">
-          <span className="text-[9px] text-[#555] uppercase tracking-wider flex-shrink-0">
+          <span className="text-[9px] text-[#8a8a8a] uppercase tracking-wider flex-shrink-0">
             Program igjen
           </span>
           {/* Ingen gul/grønn fargeskala her lenger — kun hvit (normalt) og
@@ -1259,7 +1259,7 @@ export default function ControlPanel({
           <span
             className={`text-[15px] font-bold font-mono tabular-nums ${
               programRemainingSecs == null
-                ? "text-[#555]"
+                ? "text-[#8a8a8a]"
                 : programRemainingSecs < 0
                 ? "text-[#f87171]"
                 : "text-white"
@@ -1274,7 +1274,7 @@ export default function ControlPanel({
     </div>
   );
   const clockRow2 = (
-    <div className="text-[9px] text-[#555] text-center pt-1.5 mt-0.5 border-t border-[#1e1e1e]">
+    <div className="text-[9px] text-[#8a8a8a] text-center pt-1.5 mt-0.5 border-t border-[#1e1e1e]">
       Planlagt start:{" "}
       {session.program_scheduled_ms > 0
         ? new Date(session.program_scheduled_ms).toLocaleString("no-NO", {
@@ -1299,7 +1299,7 @@ export default function ControlPanel({
   const renderAgendaList = (maxHeightClass: string) => (
     <>
       <div className="flex items-center">
-        <span className="text-[10px] text-[#555]">
+        <span className="text-[10px] text-[#8a8a8a]">
           {agenda.filter((a) => !a.is_section).length === 0
             ? "Ingen punkter"
             : `${agenda.filter((a) => !a.is_section).length} punkt${
@@ -1315,7 +1315,7 @@ export default function ControlPanel({
           klokke-anker finnes) og bredden på selve kolonnene under er FAST,
           slik at ingenting her endrer form/hopper når man trykker Start og
           feltene fylles med faktiske klokkeslett. */}
-      <div className="flex items-center gap-1.5 px-2.5 text-[9px] text-[#444] uppercase tracking-wide">
+      <div className="flex items-center gap-1.5 px-2.5 text-[9px] text-[#7d7d7d] uppercase tracking-wide">
         <span className="min-w-[18px] flex-shrink-0" />
         <span className="w-[3px] flex-shrink-0" />
         <span className="w-1.5 flex-shrink-0" />
@@ -1457,7 +1457,7 @@ export default function ControlPanel({
                 }
               />
             </div>
-            <span className="text-[11px] text-[#555] flex-shrink-0">min</span>
+            <span className="text-[11px] text-[#8a8a8a] flex-shrink-0">min</span>
             <div className="w-11 flex-none">
               <input
                 className="input no-spinner text-center"
@@ -1471,7 +1471,7 @@ export default function ControlPanel({
                 }
               />
             </div>
-            <span className="text-[11px] text-[#555] flex-shrink-0">sek</span>
+            <span className="text-[11px] text-[#8a8a8a] flex-shrink-0">sek</span>
           </div>
           <input
             className="input"
@@ -1482,7 +1482,7 @@ export default function ControlPanel({
           <ColorRow value={selColor} onChange={setSelColor} />
           {agenda.some((a) => a.is_section) && (
             <div>
-              <div className="text-[10px] text-[#555] uppercase tracking-wider mb-1">
+              <div className="text-[10px] text-[#8a8a8a] uppercase tracking-wider mb-1">
                 Plassering
               </div>
               <select
@@ -1515,7 +1515,7 @@ export default function ControlPanel({
           <div className="ptitle">Importer / eksporter program</div>
           <div
             className={`rounded-md border border-dashed ${
-              dragOver ? "border-[#2563eb] text-[#93c5fd]" : "border-[#2a2a2a] text-[#555]"
+              dragOver ? "border-[#2563eb] text-[#93c5fd]" : "border-[#2a2a2a] text-[#8a8a8a]"
             } p-2 text-center text-[11px] cursor-pointer transition-colors`}
             onClick={() => fileInputRefEdit.current?.click()}
             onDragOver={(e) => {
@@ -1582,7 +1582,7 @@ export default function ControlPanel({
                     value={editMin}
                     onChange={(e) => setEditMin(e.target.value)}
                   />
-                  <div className="text-[10px] text-[#555] text-center mt-1">minutter</div>
+                  <div className="text-[10px] text-[#8a8a8a] text-center mt-1">minutter</div>
                 </div>
                 <div>
                   <input
@@ -1594,7 +1594,7 @@ export default function ControlPanel({
                     value={editSec}
                     onChange={(e) => setEditSec(e.target.value)}
                   />
-                  <div className="text-[10px] text-[#555] text-center mt-1">sekunder</div>
+                  <div className="text-[10px] text-[#8a8a8a] text-center mt-1">sekunder</div>
                 </div>
               </div>
             )}
@@ -1646,7 +1646,7 @@ export default function ControlPanel({
                   value={newMin}
                   onChange={(e) => setNewMin(e.target.value)}
                 />
-                <div className="text-[10px] text-[#555] text-center mt-1">minutter</div>
+                <div className="text-[10px] text-[#8a8a8a] text-center mt-1">minutter</div>
               </div>
               <div>
                 <input
@@ -1658,7 +1658,7 @@ export default function ControlPanel({
                   value={newSec}
                   onChange={(e) => setNewSec(e.target.value)}
                 />
-                <div className="text-[10px] text-[#555] text-center mt-1">sekunder</div>
+                <div className="text-[10px] text-[#8a8a8a] text-center mt-1">sekunder</div>
               </div>
             </div>
             <input
@@ -1670,7 +1670,7 @@ export default function ControlPanel({
             <ColorRow value={selColor} onChange={setSelColor} />
             {agenda.some((a) => a.is_section) && (
               <div>
-                <div className="text-[10px] text-[#555] uppercase tracking-wider mb-1">
+                <div className="text-[10px] text-[#8a8a8a] uppercase tracking-wider mb-1">
                   Bolk
                 </div>
                 <select
@@ -2008,7 +2008,7 @@ export default function ControlPanel({
                   etter posten/bolkens egen farge. */}
               <div className="sc flex items-center justify-between gap-3 flex-shrink-0">
                 <div className="flex flex-col min-w-0 gap-0.5 flex-1">
-                  <span className="text-[9px] font-bold text-[#555] uppercase tracking-wider">
+                  <span className="text-[9px] font-bold text-[#8a8a8a] uppercase tracking-wider">
                     Tidtaker
                   </span>
                   {/* Fikk lov til å bruke mer av boksens bredde før "…" —
@@ -2023,7 +2023,7 @@ export default function ControlPanel({
                 <div
                   className={`sc-val lg leading-none text-right flex-shrink-0 ${
                     activeIdx < 0 && !session.running && session.total_secs === 0
-                      ? "text-[#333]"
+                      ? "text-[#707070]"
                       : isOvertime
                       ? "text-[#f87171]"
                       : "text-white"
@@ -2040,7 +2040,7 @@ export default function ControlPanel({
                 <span
                   className={`status-pill ${
                     absStatus < 2
-                      ? "text-[#555] border-[#1e1e1e]"
+                      ? "text-[#8a8a8a] border-[#1e1e1e]"
                       : liveStatus > 0
                       ? "text-[#f87171] border-[#4a1515] bg-[#1a0808]"
                       : "text-[#4ade80] border-[#1a4a2a] bg-[#0a1f0a]"
@@ -2354,7 +2354,7 @@ function itemSum(agenda: LocalItem[], sectionIdx: number): string {
 function ColorRow({ value, onChange }: { value: string; onChange: (c: string) => void }) {
   return (
     <div className="flex gap-1.5 items-center flex-wrap py-0.5">
-      <span className="text-[10px] text-[#555]">Farge:</span>
+      <span className="text-[10px] text-[#8a8a8a]">Farge:</span>
       {COLORS.map((c) => (
         <button
           key={c}
@@ -2397,7 +2397,7 @@ function SectionRow({
       <span className="text-[11px] font-semibold text-[#aaa] flex-1 min-w-0 truncate tracking-wide">
         {item.name}
       </span>
-      <span className="text-[9px] text-[#333] bg-[#141414] rounded px-1.5 py-0.5 flex-shrink-0">BOLK</span>
+      <span className="text-[9px] text-[#707070] bg-[#141414] rounded px-1.5 py-0.5 flex-shrink-0">BOLK</span>
       {/* Samme FASTE kolonnebredder som AgendaRow/kolonneoverskriftene,
           slik at bolkens varighet faktisk står rett under "Varighet" i
           stedet for å flyte fritt (tidligere `ml-1.5`/`ml-auto`, som ga
@@ -2408,10 +2408,10 @@ function SectionRow({
         <span className="text-[10px] text-[#888] font-mono w-[100px] text-right truncate">
           {timeLabel || secLabel}
         </span>
-        <span className="text-[10px] text-[#444] font-mono w-[64px] text-right border-l border-[#454545] pl-3">
+        <span className="text-[10px] text-[#7d7d7d] font-mono w-[64px] text-right border-l border-[#454545] pl-3">
           –
         </span>
-        <span className="text-[10px] text-[#444] font-mono w-[64px] text-right border-l border-[#454545] pl-3">
+        <span className="text-[10px] text-[#7d7d7d] font-mono w-[64px] text-right border-l border-[#454545] pl-3">
           –
         </span>
       </div>
@@ -2462,7 +2462,7 @@ function AgendaRow({
       } ${isDone ? "opacity-35" : ""}`}
     >
       <div className="flex items-center gap-1.5 px-2.5 py-2 cursor-pointer" onClick={() => loadItem(i)}>
-        <span className="text-[10px] text-[#333] min-w-[18px]">{num}</span>
+        <span className="text-[10px] text-[#707070] min-w-[18px]">{num}</span>
         <div className="w-[3px] self-stretch rounded flex-shrink-0" style={{ background: item.color }} />
         <div
           className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
@@ -2499,7 +2499,7 @@ function AgendaRow({
           <button className="btn xs red" onClick={() => removeItem(i)}>✕</button>
         </div>
       </div>
-      {item.note && <div className="text-[10px] text-[#3a3a3a] italic leading-relaxed px-2.5 pb-2 pl-9">{item.note}</div>}
+      {item.note && <div className="text-[10px] text-[#707070] italic leading-relaxed px-2.5 pb-2 pl-9">{item.note}</div>}
     </div>
   );
 }

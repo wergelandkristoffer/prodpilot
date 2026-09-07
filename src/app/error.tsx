@@ -58,7 +58,7 @@ export default function Error({
           </a>
         </div>
         {error?.message && (
-          <p className="text-[10px] text-[#444] font-mono break-all bg-[#0e0e0e] border border-[#1e1e1e] rounded-md p-2.5">
+          <p className="text-[10px] text-[#7d7d7d] font-mono break-all bg-[#0e0e0e] border border-[#1e1e1e] rounded-md p-2.5">
             {error.message}
           </p>
         )}

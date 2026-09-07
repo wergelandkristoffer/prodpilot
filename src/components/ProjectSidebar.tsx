@@ -48,7 +48,7 @@ export default function ProjectSidebar({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between">
-          <span className="text-[10px] font-bold text-[#555] uppercase tracking-wider">
+          <span className="text-[10px] font-bold text-[#8a8a8a] uppercase tracking-wider">
             Prosjekter
           </span>
           <button
@@ -69,7 +69,7 @@ export default function ProjectSidebar({
 
         <div className="flex flex-col gap-0.5 overflow-y-auto pr-0.5">
           {projects.length === 0 && (
-            <div className="text-[11px] text-[#444] px-1.5">Ingen prosjekter enda.</div>
+            <div className="text-[11px] text-[#7d7d7d] px-1.5">Ingen prosjekter enda.</div>
           )}
           {projects.map((p) => (
             <button
@@ -79,7 +79,7 @@ export default function ProjectSidebar({
               className={`text-left rounded-md px-2.5 py-2 text-xs truncate transition-colors border ${
                 p.id === currentId
                   ? "bg-[#141414] text-white border-[#2a2a2a]"
-                  : "text-[#777] hover:bg-[#0e0e0e] hover:text-[#aaa] border-transparent"
+                  : "text-[#a3a3a3] hover:bg-[#0e0e0e] hover:text-[#aaa] border-transparent"
               }`}
             >
               {p.name || "Uten navn"}
@@ -89,12 +89,12 @@ export default function ProjectSidebar({
 
         {/* Innlogget bruker + logg ut, nederst i skuffen. */}
         <div className="mt-auto pt-3 border-t border-[#1e1e1e] flex items-center justify-between gap-2 flex-shrink-0">
-          <span className="text-[10px] text-[#555] truncate" title={userEmail}>
+          <span className="text-[10px] text-[#8a8a8a] truncate" title={userEmail}>
             {userEmail}
           </span>
           <button
             onClick={onSignOut}
-            className="text-[10px] text-[#777] hover:text-[#f87171] transition-colors flex-shrink-0"
+            className="text-[10px] text-[#a3a3a3] hover:text-[#f87171] transition-colors flex-shrink-0"
           >
             Logg ut
           </button>
