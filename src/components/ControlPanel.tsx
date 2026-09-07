@@ -1323,9 +1323,9 @@ export default function ControlPanel({
         {/* Litt mer luft + tynne skillestreker mellom de tre tallkolonnene,
             så de ikke flyter sammen visuelt. */}
         <div className="flex items-center gap-4 flex-shrink-0">
-          <span className="w-[100px] text-right">Varighet</span>
-          <span className="w-[64px] text-right border-l border-[#454545] pl-3">Planlagt</span>
-          <span className="w-[64px] text-right border-l border-[#454545] pl-3">Ny tid</span>
+          <span className="w-[100px] text-center">Varighet</span>
+          <span className="w-[64px] text-center border-l border-[#454545] px-3">Planlagt</span>
+          <span className="w-[64px] text-center border-l border-[#454545] px-3">Ny tid</span>
         </div>
         <span className="w-[145px] flex-shrink-0" />
       </div>
@@ -2405,13 +2405,13 @@ function SectionRow({
           har ingen egen verdi for en bolk, men vises som "–" for at
           kolonnene skal se ut som del av samme rutenett som radene under. */}
       <div className="flex items-center gap-4 flex-shrink-0">
-        <span className="text-[10px] text-[#888] font-mono w-[100px] text-right truncate">
+        <span className="text-[10px] text-[#888] font-mono w-[100px] text-center truncate">
           {timeLabel || secLabel}
         </span>
-        <span className="text-[10px] text-[#7d7d7d] font-mono w-[64px] text-right border-l border-[#454545] pl-3">
+        <span className="text-[10px] text-[#7d7d7d] font-mono w-[64px] text-center border-l border-[#454545] px-3">
           –
         </span>
-        <span className="text-[10px] text-[#7d7d7d] font-mono w-[64px] text-right border-l border-[#454545] pl-3">
+        <span className="text-[10px] text-[#7d7d7d] font-mono w-[64px] text-center border-l border-[#454545] px-3">
           –
         </span>
       </div>
@@ -2477,14 +2477,14 @@ function AgendaRow({
             mer luft + tynne skillestreker mellom dem, samme mønster som
             kolonneoverskriftene over. */}
         <div className="flex items-center gap-4 flex-shrink-0">
-          <span className="text-[10px] text-[#888] font-mono w-[100px] text-right truncate">
+          <span className="text-[10px] text-[#888] font-mono w-[100px] text-center truncate">
             {fmtDuration(item.duration_secs)}
           </span>
-          <span className="text-[10px] text-[#888] font-mono w-[64px] text-right border-l border-[#454545] pl-3">
+          <span className="text-[10px] text-[#888] font-mono w-[64px] text-center border-l border-[#454545] px-3">
             {clock || "–"}
           </span>
           <span
-            className={`text-[10px] font-mono w-[64px] text-right border-l border-[#454545] pl-3 ${
+            className={`text-[10px] font-mono w-[64px] text-center border-l border-[#454545] px-3 ${
               newClock && newClock !== clock ? (isLate ? "text-[#f87171]" : "text-[#4ade80]") : "text-[#888]"
             }`}
           >
