@@ -2394,13 +2394,32 @@ function SectionRow({
   return (
     <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md mt-1.5 hover:bg-[#141414]">
       <div className="w-[3px] h-[15px] rounded flex-shrink-0" style={{ background: item.color }} />
-      <span className="text-[11px] font-semibold text-[#aaa] flex-1 tracking-wide">{item.name}</span>
-      <span className="text-[9px] text-[#333] bg-[#141414] rounded px-1.5 py-0.5">BOLK</span>
-      <span className="text-[10px] text-[#555] ml-1.5">{timeLabel || secLabel}</span>
-      <div className="flex gap-0.5 ml-auto">
+      <span className="text-[11px] font-semibold text-[#aaa] flex-1 min-w-0 truncate tracking-wide">
+        {item.name}
+      </span>
+      <span className="text-[9px] text-[#333] bg-[#141414] rounded px-1.5 py-0.5 flex-shrink-0">BOLK</span>
+      {/* Samme FASTE kolonnebredder som AgendaRow/kolonneoverskriftene,
+          slik at bolkens varighet faktisk står rett under "Varighet" i
+          stedet for å flyte fritt (tidligere `ml-1.5`/`ml-auto`, som ga
+          usymmetrisk plassering avhengig av navnelengde). Planlagt/Ny tid
+          har ingen egen verdi for en bolk, men vises som "–" for at
+          kolonnene skal se ut som del av samme rutenett som radene under. */}
+      <div className="flex items-center gap-4 flex-shrink-0">
+        <span className="text-[10px] text-[#888] font-mono w-[100px] text-right truncate">
+          {timeLabel || secLabel}
+        </span>
+        <span className="text-[10px] text-[#444] font-mono w-[64px] text-right border-l border-[#454545] pl-3">
+          –
+        </span>
+        <span className="text-[10px] text-[#444] font-mono w-[64px] text-right border-l border-[#454545] pl-3">
+          –
+        </span>
+      </div>
+      <div className="flex gap-0.5 flex-shrink-0 ml-2.5">
         <button className="btn xs" onClick={() => moveUp(i)}>↑</button>
         <button className="btn xs" onClick={() => moveDown(i)}>↓</button>
         <button className="btn xs" onClick={() => openEdit(i)}>✎</button>
+        <button className="btn xs invisible" tabIndex={-1} aria-hidden="true">▶</button>
         <button className="btn xs red" onClick={() => removeItem(i)}>✕</button>
       </div>
     </div>
