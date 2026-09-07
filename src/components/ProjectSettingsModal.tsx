@@ -60,6 +60,13 @@ export default function ProjectSettingsModal({
   onFile,
   onDownloadTemplate,
   onExport,
+  pdfStatus,
+  pdfBusy,
+  pdfDragOver,
+  setPdfDragOver,
+  pdfInputRef,
+  onPdfFile,
+  onShowPdfExample,
   onDelete,
 }: {
   session: SessionRow;
@@ -90,6 +97,13 @@ export default function ProjectSettingsModal({
   onFile: (file: File) => void;
   onDownloadTemplate: () => void;
   onExport: () => void;
+  pdfStatus: string;
+  pdfBusy: boolean;
+  pdfDragOver: boolean;
+  setPdfDragOver: (v: boolean) => void;
+  pdfInputRef: RefObject<HTMLInputElement | null>;
+  onPdfFile: (file: File) => void;
+  onShowPdfExample: () => void;
   onDelete: () => void;
 }) {
   useEffect(() => {
@@ -295,6 +309,50 @@ export default function ProjectSettingsModal({
             <button className="btn xs" onClick={onExport}>
               Eksporter program
             </button>
+          </div>
+
+          {/* PDF-import (AI-tolket) — se forklaring i ControlPanel.tsx sin
+              versjon av denne boksen (samme oppførsel, delt via props). */}
+          <div className="border-t border-[#1e1e1e] pt-2.5 mt-0.5">
+            <div className="flex items-center justify-between gap-2 mb-1.5">
+              <div className="ptitle !mb-0">Importer fra PDF (AI-tolket)</div>
+              <button className="text-[10px] text-[#93c5fd] hover:underline flex-shrink-0" onClick={onShowPdfExample}>
+                Se eksempel
+              </button>
+            </div>
+            <div className="text-[10px] text-[#8a8a8a] leading-relaxed mb-1.5">
+              Fungerer best på et program med ren tekst (ikke et skannet
+              bilde) — f.eks. en liste med tidspunkt/varighet og navn på
+              hvert punkt, gjerne gruppert i bolker. AI-en gjetter
+              varighet der den ikke står oppgitt.
+            </div>
+            <div
+              className={`rounded-md border border-dashed ${
+                pdfDragOver ? "border-[#c4b5fd] text-[#c4b5fd]" : "border-[#2a2a2a] text-[#8a8a8a]"
+              } p-2 text-center text-[11px] transition-colors ${
+                pdfBusy ? "opacity-60 cursor-wait" : "cursor-pointer"
+              }`}
+              onClick={() => !pdfBusy && pdfInputRef.current?.click()}
+              onDragOver={(e) => {
+                e.preventDefault();
+                if (!pdfBusy) setPdfDragOver(true);
+              }}
+              onDragLeave={() => setPdfDragOver(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setPdfDragOver(false);
+                if (!pdfBusy && e.dataTransfer.files[0]) onPdfFile(e.dataTransfer.files[0]);
+              }}
+            >
+              {pdfStatus}
+            </div>
+            <input
+              ref={pdfInputRef}
+              type="file"
+              accept=".pdf,application/pdf"
+              className="hidden"
+              onChange={(e) => e.target.files?.[0] && onPdfFile(e.target.files[0])}
+            />
           </div>
         </div>
 

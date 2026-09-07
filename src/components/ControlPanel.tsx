@@ -155,6 +155,15 @@ export default function ControlPanel({
     "Importer fra Excel / CSV — dra hit eller klikk"
   );
   const [dragOver, setDragOver] = useState(false);
+  // PDF-import (AI-tolket) — egen status/drag-state, siden dette er en
+  // helt egen import-vei (kaller /api/parse-agenda-pdf i stedet for å
+  // lese CSV/Excel-kolonner selv).
+  const [pdfStatus, setPdfStatus] = useState(
+    "Importer fra PDF (AI-tolket) — dra hit eller klikk"
+  );
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const [pdfDragOver, setPdfDragOver] = useState(false);
+  const [pdfExampleOpen, setPdfExampleOpen] = useState(false);
   const [addSectionOpen, setAddSectionOpen] = useState(false);
   const [newSectionName, setNewSectionName] = useState("");
   const [newSectionColor, setNewSectionColor] = useState(COLORS[0]);
@@ -179,6 +188,8 @@ export default function ControlPanel({
   // (samme handlers/status som Innstillinger-modalen, men modalen sin
   // skjulte <input type="file"> finnes bare i DOM-en mens modalen er åpen).
   const fileInputRefEdit = useRef<HTMLInputElement>(null);
+  const pdfInputRef = useRef<HTMLInputElement>(null);
+  const pdfInputRefEdit = useRef<HTMLInputElement>(null);
   const linkMenuRef = useRef<HTMLDivElement>(null);
   const logoInputRef = useRef<HTMLInputElement>(null);
   const autostartFiredRef = useRef(false);
@@ -1051,6 +1062,109 @@ export default function ControlPanel({
     [agenda, selColor, syncAgenda, askConfirm]
   );
 
+  // PDF-import (AI-tolket): i motsetning til CSV/Excel-importen over, som
+  // bare leser faste kolonner, finnes det ingen fast "kolonne-oppskrift"
+  // for en vilkårlig PDF — programmet kan være satt opp på utallige
+  // måter. Løsningen er å sende selve PDF-en (som base64) til en liten,
+  // skjult server-funksjon (`/api/parse-agenda-pdf`), som ber en
+  // AI-modell lese gjennom dokumentet og returnere en strukturert liste
+  // over punkter/bolker. API-nøkkelen ligger KUN på serveren
+  // (miljøvariabelen ANTHROPIC_API_KEY i Vercel), aldri i selve appen —
+  // se README/statusnotat for oppsett. Brukeren får alltid se hvor mange
+  // punkter som ble funnet og må bekrefte før noe faktisk legges inn,
+  // akkurat som ved CSV-import, siden en AI-tolkning kan bomme.
+  const parsePdf = useCallback(
+    (file: File) => {
+      if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
+        setPdfStatus("Kun PDF-filer støttes her — bruk Excel/CSV-import over for regneark.");
+        return;
+      }
+      if (file.size > 15 * 1024 * 1024) {
+        setPdfStatus("PDF-en er for stor (maks 15 MB).");
+        return;
+      }
+      setPdfBusy(true);
+      setPdfStatus("Leser PDF-en og tolker innholdet med AI … kan ta et lite minutt");
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        try {
+          const dataUrl = String(e.target?.result || "");
+          const base64 = dataUrl.split(",")[1] || "";
+          if (!base64) throw new Error("Tom fil");
+          const res = await fetch("/api/parse-agenda-pdf", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ fileBase64: base64, fileName: file.name }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            setPdfStatus(
+              data?.error || "Klarte ikke å tolke PDF-en. Prøv igjen, eller bruk CSV-import i stedet."
+            );
+            return;
+          }
+          const rawItems: Array<{ type?: string; name?: string; minutes?: number; note?: string }> =
+            Array.isArray(data?.items) ? data.items : [];
+          const items: LocalItem[] = [];
+          for (const r of rawItems) {
+            const name = String(r?.name || "").trim();
+            if (!name) continue;
+            if (r?.type === "section") {
+              items.push({
+                key: newKey(),
+                is_section: true,
+                name,
+                duration_secs: 0,
+                note: "",
+                color: selColor,
+              });
+            } else {
+              const mins = Math.max(0, Number(r?.minutes) || 5);
+              items.push({
+                key: newKey(),
+                is_section: false,
+                name,
+                duration_secs: Math.round(mins * 60),
+                note: String(r?.note || "").trim(),
+                color: selColor,
+              });
+            }
+          }
+          if (items.length === 0) {
+            setPdfStatus("Fant ingen programpunkter i denne PDF-en.");
+            return;
+          }
+          askConfirm(
+            `AI-en fant ${items.length} punkt${
+              items.length === 1 ? "" : "er"
+            } i PDF-en. Legge til? Sjekk gjerne over at det ser riktig ut etterpå — AI-tolkning kan bomme på enkelte detaljer.`,
+            () => {
+              syncAgenda([...agenda, ...items]);
+              setPdfStatus(`Lagt til ${items.length} punkter fra PDF`);
+            },
+            {
+              onCancel: () => setPdfStatus("Importer fra PDF (AI-tolket) — dra hit eller klikk"),
+              confirmLabel: "Legg til",
+            }
+          );
+        } catch (err) {
+          console.error(err);
+          setPdfStatus("Noe gikk galt under lesing av PDF-en. Prøv igjen.");
+        } finally {
+          setPdfBusy(false);
+          if (pdfInputRef.current) pdfInputRef.current.value = "";
+          if (pdfInputRefEdit.current) pdfInputRefEdit.current.value = "";
+        }
+      };
+      reader.onerror = () => {
+        setPdfBusy(false);
+        setPdfStatus("Klarte ikke å lese filen. Prøv igjen.");
+      };
+      reader.readAsDataURL(file);
+    },
+    [agenda, selColor, syncAgenda, askConfirm]
+  );
+
   const downloadTemplate = useCallback(() => {
     const csv =
       "Type,Navn,Minutter,Notat,Farge\nBolk,Velkomst,,,#6366f1\nPunkt,Åpningstale,5,Toastmaster snakker,#6366f1\nPunkt,Champagne-skål,3,,#6366f1\nBolk,Middag,,,#10b981\nPunkt,Forrett serveres,20,,#10b981\nPunkt,Hovedrett,30,,#10b981\n";
@@ -1561,6 +1675,54 @@ export default function ControlPanel({
               Eksporter program
             </button>
           </div>
+
+          {/* PDF-import (AI-tolket) — egen boks under Excel/CSV-boksen,
+              siden dette er en helt annen import-vei (sender selve
+              PDF-en til en AI-modell i stedet for å lese faste
+              kolonner). Kort forklaring + "Se eksempel"-knapp rett ved
+              siden av, som bedt om, slik at det er tydelig hva slags
+              PDF som funker best FØR man laster opp. */}
+          <div className="border-t border-[#1e1e1e] pt-2.5 mt-0.5">
+            <div className="flex items-center justify-between gap-2 mb-1.5">
+              <div className="ptitle !mb-0">Importer fra PDF (AI-tolket)</div>
+              <button className="text-[10px] text-[#93c5fd] hover:underline flex-shrink-0" onClick={() => setPdfExampleOpen(true)}>
+                Se eksempel
+              </button>
+            </div>
+            <div className="text-[10px] text-[#8a8a8a] leading-relaxed mb-1.5">
+              Fungerer best på et program med ren tekst (ikke et skannet
+              bilde) — f.eks. en liste med tidspunkt/varighet og navn på
+              hvert punkt, gjerne gruppert i bolker. AI-en gjetter
+              varighet der den ikke står oppgitt.
+            </div>
+            <div
+              className={`rounded-md border border-dashed ${
+                pdfDragOver ? "border-[#c4b5fd] text-[#c4b5fd]" : "border-[#2a2a2a] text-[#8a8a8a]"
+              } p-2 text-center text-[11px] transition-colors ${
+                pdfBusy ? "opacity-60 cursor-wait" : "cursor-pointer"
+              }`}
+              onClick={() => !pdfBusy && pdfInputRefEdit.current?.click()}
+              onDragOver={(e) => {
+                e.preventDefault();
+                if (!pdfBusy) setPdfDragOver(true);
+              }}
+              onDragLeave={() => setPdfDragOver(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setPdfDragOver(false);
+                if (!pdfBusy && e.dataTransfer.files[0]) parsePdf(e.dataTransfer.files[0]);
+              }}
+            >
+              {pdfStatus}
+            </div>
+            <input
+              ref={pdfInputRefEdit}
+              type="file"
+              accept=".pdf,application/pdf"
+              className="hidden"
+              onChange={(e) => e.target.files?.[0] && parsePdf(e.target.files[0])}
+            />
+          </div>
         </div>
       </div>
 
@@ -1757,6 +1919,46 @@ export default function ControlPanel({
         </div>
       )}
 
+      {pdfExampleOpen && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-4"
+          onClick={() => setPdfExampleOpen(false)}
+        >
+          <div
+            className="w-full max-w-md rounded-xl border border-[#2a2a2a] bg-[#111] p-5 flex flex-col gap-3"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <div className="text-sm font-semibold text-[#d8d8d8]">Eksempel på PDF som funker bra</div>
+              <button className="btn xs" onClick={() => setPdfExampleOpen(false)}>
+                ✕
+              </button>
+            </div>
+            <p className="text-[11px] text-[#8a8a8a] leading-relaxed">
+              AI-en leser gjennom hele dokumentet og prøver å finne
+              tidspunkt/varighet, navn på hvert punkt og eventuelle
+              bolker/seksjoner den kan grupperes under — omtrent slik:
+            </p>
+            <div className="rounded-md border border-[#2a2a2a] bg-[#0e0e0e] p-3 text-[11px] font-mono text-[#c4b5fd] leading-relaxed whitespace-pre-wrap">
+{`BOLK: Velkomst
+17:00  Gjester ankommer (30 min)
+17:30  Åpningstale — Toastmaster (5 min)
+
+BOLK: Middag
+18:00  Forrett serveres (20 min)
+18:20  Hovedrett (30 min)`}
+            </div>
+            <p className="text-[11px] text-[#8a8a8a] leading-relaxed">
+              Det trenger ikke se nøyaktig sånn ut — vanlig, ren tekst
+              (ikke et skannet bilde/foto) med tydelige tidspunkt eller
+              varigheter fungerer som regel bra. Mangler varighet for et
+              punkt, gjetter AI-en et rimelig anslag. Sjekk alltid over
+              resultatet etterpå, siden AI-tolkning innimellom kan bomme.
+            </p>
+          </div>
+        </div>
+      )}
+
       {addSectionOpen && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
@@ -1819,6 +2021,13 @@ export default function ControlPanel({
           onFile={parseFile}
           onDownloadTemplate={downloadTemplate}
           onExport={exportProgram}
+          pdfStatus={pdfStatus}
+          pdfBusy={pdfBusy}
+          pdfDragOver={pdfDragOver}
+          setPdfDragOver={setPdfDragOver}
+          pdfInputRef={pdfInputRef}
+          onPdfFile={parsePdf}
+          onShowPdfExample={() => setPdfExampleOpen(true)}
           onDelete={deleteCurrentProject}
         />
       )}
@@ -2407,12 +2616,29 @@ function SectionRow({
   removeItem: (i: number) => void;
 }) {
   return (
-    <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md mt-1.5 hover:bg-[#141414]">
+    <div className="flex items-center gap-1.5 px-2.5 py-2 rounded-md mt-1.5 hover:bg-[#141414]">
+      {/* VIKTIG: alt som står FØR det fleksible navnefeltet i denne
+          raden må ha NØYAKTIG samme bredde som i AgendaRow/
+          kolonneoverskriftene (usynlig plassholder for nummer + prikk,
+          siden en bolk verken har nummer eller status-prikk), OG selve
+          BOLK-merket må stå INNI den fleksible navne-sonen sammen med
+          navnet (ikke som et eget, fast element rett før tall-kolonnene)
+          — ellers dytter det tall-kolonnene ekstra mot høyre, siden
+          ingenting da absorberer nettopp DEN bredden. Dette gjelder
+          spesielt på smale/mobile skjermer der raden uansett er for
+          smal til å vise alt (navnet krympes helt bort) — da er det IKKE
+          nok at bredden "vanligvis" absorberes av navnet, den må være
+          identisk uansett hvor mye plass som faktisk finnes. Dette var
+          den egentlige, siste årsaken til at bolk-radenes tall ikke sto
+          rett under "Varighet"/"Planlagt"/"Ny tid", selv etter forrige
+          runde. */}
+      <span className="text-[10px] min-w-[18px] invisible" aria-hidden="true">0</span>
       <div className="w-[3px] h-[15px] rounded flex-shrink-0" style={{ background: item.color }} />
-      <span className="text-[11px] font-semibold text-[#aaa] flex-1 min-w-0 truncate tracking-wide">
-        {item.name}
-      </span>
-      <span className="text-[9px] text-[#707070] bg-[#141414] rounded px-1.5 py-0.5 flex-shrink-0">BOLK</span>
+      <div className="w-1.5 h-1.5 rounded-full flex-shrink-0 invisible" aria-hidden="true" />
+      <div className="flex items-center gap-1.5 flex-1 min-w-0 overflow-hidden">
+        <span className="text-[9px] text-[#707070] bg-[#141414] rounded px-1.5 py-0.5 flex-shrink-0">BOLK</span>
+        <span className="text-[11px] font-semibold text-[#aaa] truncate tracking-wide">{item.name}</span>
+      </div>
       {/* Samme FASTE kolonnebredder som AgendaRow/kolonneoverskriftene,
           slik at bolkens varighet faktisk står rett under "Varighet" i
           stedet for å flyte fritt (tidligere `ml-1.5`/`ml-auto`, som ga
