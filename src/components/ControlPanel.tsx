@@ -1324,13 +1324,13 @@ export default function ControlPanel({
             så de ikke flyter sammen visuelt. */}
         <div className="flex items-center gap-4 flex-shrink-0">
           <span className="w-[100px] text-right">Varighet</span>
-          <span className="w-[46px] text-right border-l border-[#454545] pl-3">Planlagt</span>
-          <span className="w-[46px] text-right border-l border-[#454545] pl-3">Ny tid</span>
+          <span className="w-[64px] text-right border-l border-[#454545] pl-3">Planlagt</span>
+          <span className="w-[64px] text-right border-l border-[#454545] pl-3">Ny tid</span>
         </div>
         <span className="w-[145px] flex-shrink-0" />
       </div>
 
-      <div className={`flex flex-col gap-0.5 ${maxHeightClass} overflow-y-auto pr-0.5`}>
+      <div className={`flex flex-col gap-2 ${maxHeightClass} overflow-y-auto pr-0.5`}>
         {agenda.map((item, i) => {
           if (item.is_section) {
             return (
@@ -2461,11 +2461,11 @@ function AgendaRow({
           <span className="text-[10px] text-[#888] font-mono w-[100px] text-right truncate">
             {fmtDuration(item.duration_secs)}
           </span>
-          <span className="text-[10px] text-[#888] font-mono w-[46px] text-right border-l border-[#454545] pl-3">
+          <span className="text-[10px] text-[#888] font-mono w-[64px] text-right border-l border-[#454545] pl-3">
             {clock || "–"}
           </span>
           <span
-            className={`text-[10px] font-mono w-[46px] text-right border-l border-[#454545] pl-3 ${
+            className={`text-[10px] font-mono w-[64px] text-right border-l border-[#454545] pl-3 ${
               newClock && newClock !== clock ? (isLate ? "text-[#f87171]" : "text-[#4ade80]") : "text-[#888]"
             }`}
           >
