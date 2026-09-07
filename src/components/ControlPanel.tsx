@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useRouter } from "next/navigation";
 import * as XLSX from "xlsx";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase";
@@ -155,11 +155,12 @@ export default function ControlPanel({
     "Importer fra Excel / CSV — dra hit eller klikk"
   );
   const [dragOver, setDragOver] = useState(false);
-  // PDF-import (AI-tolket) — egen status/drag-state, siden dette er en
-  // helt egen import-vei (kaller /api/parse-agenda-pdf i stedet for å
-  // lese CSV/Excel-kolonner selv).
+  // PDF-import — egen status/drag-state, siden dette er en helt egen
+  // import-vei (kaller /api/parse-agenda-pdf, som leser ren tekst fra
+  // PDF-en og gjetter seg til punkter/bolker, i stedet for å lese faste
+  // CSV/Excel-kolonner).
   const [pdfStatus, setPdfStatus] = useState(
-    "Importer fra PDF (AI-tolket) — dra hit eller klikk"
+    "Importer fra PDF — dra hit eller klikk"
   );
   const [pdfBusy, setPdfBusy] = useState(false);
   const [pdfDragOver, setPdfDragOver] = useState(false);
@@ -1062,17 +1063,15 @@ export default function ControlPanel({
     [agenda, selColor, syncAgenda, askConfirm]
   );
 
-  // PDF-import (AI-tolket): i motsetning til CSV/Excel-importen over, som
-  // bare leser faste kolonner, finnes det ingen fast "kolonne-oppskrift"
-  // for en vilkårlig PDF — programmet kan være satt opp på utallige
-  // måter. Løsningen er å sende selve PDF-en (som base64) til en liten,
-  // skjult server-funksjon (`/api/parse-agenda-pdf`), som ber en
-  // AI-modell lese gjennom dokumentet og returnere en strukturert liste
-  // over punkter/bolker. API-nøkkelen ligger KUN på serveren
-  // (miljøvariabelen ANTHROPIC_API_KEY i Vercel), aldri i selve appen —
-  // se README/statusnotat for oppsett. Brukeren får alltid se hvor mange
-  // punkter som ble funnet og må bekrefte før noe faktisk legges inn,
-  // akkurat som ved CSV-import, siden en AI-tolkning kan bomme.
+  // PDF-import: i motsetning til CSV/Excel-importen over, som bare leser
+  // faste kolonner, finnes det ingen fast "kolonne-oppskrift" for en
+  // vilkårlig PDF. Løsningen er å sende selve PDF-en (som base64) til en
+  // liten, skjult server-funksjon (`/api/parse-agenda-pdf`), som leser ut
+  // ren tekst fra PDF-en og gjetter seg til punkter/bolker med enkle,
+  // faste regler (klokkeslett, "X min", "BOLK:" osv.) — INGEN AI, ingen
+  // API-nøkkel, ingen kostnad. Brukeren får alltid se hvor mange punkter
+  // som ble funnet og må bekrefte før noe faktisk legges inn, akkurat som
+  // ved CSV-import, siden en automatisk lesing kan bomme.
   const parsePdf = useCallback(
     (file: File) => {
       if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
@@ -1084,7 +1083,7 @@ export default function ControlPanel({
         return;
       }
       setPdfBusy(true);
-      setPdfStatus("Leser PDF-en og tolker innholdet med AI … kan ta et lite minutt");
+      setPdfStatus("Leser og tolker PDF-en …");
       const reader = new FileReader();
       reader.onload = async (e) => {
         try {
@@ -1135,15 +1134,15 @@ export default function ControlPanel({
             return;
           }
           askConfirm(
-            `AI-en fant ${items.length} punkt${
+            `Fant ${items.length} punkt${
               items.length === 1 ? "" : "er"
-            } i PDF-en. Legge til? Sjekk gjerne over at det ser riktig ut etterpå — AI-tolkning kan bomme på enkelte detaljer.`,
+            } i PDF-en. Legge til? Sjekk gjerne over at det ser riktig ut etterpå — automatisk lesing kan bomme på enkelte detaljer (f.eks. varighet som ikke stod oppgitt).`,
             () => {
               syncAgenda([...agenda, ...items]);
               setPdfStatus(`Lagt til ${items.length} punkter fra PDF`);
             },
             {
-              onCancel: () => setPdfStatus("Importer fra PDF (AI-tolket) — dra hit eller klikk"),
+              onCancel: () => setPdfStatus("Importer fra PDF — dra hit eller klikk"),
               confirmLabel: "Legg til",
             }
           );
@@ -1425,79 +1424,105 @@ export default function ControlPanel({
         </button>
       </div>
 
-      {/* Kolonneoverskrifter — ALLTID synlige (ikke lenger betinget av om et
-          klokke-anker finnes) og bredden på selve kolonnene under er FAST,
-          slik at ingenting her endrer form/hopper når man trykker Start og
-          feltene fylles med faktiske klokkeslett. */}
-      <div className="flex items-stretch gap-1.5 px-2.5 text-[9px] text-[#7d7d7d] uppercase tracking-wide">
-        <span className="min-w-[18px] flex-shrink-0" />
-        <span className="w-[3px] flex-shrink-0" />
-        <span className="w-1.5 flex-shrink-0" />
-        <span className="flex-1 min-w-0" />
-        {/* Ekte, fullhøyde kolonnestriper: boksene her strekker seg over
-            HELE radens høyde (ikke bare tekstlinjen) og teksten
-            midtstilles med flex i stedet for text-align, slik at
-            skillelinjene ser ut som ordentlige kolonnestreker — samme
-            oppskrift (bredde/padding/stretch) brukes i AgendaRow og
-            SectionRow under, så stripene fortsetter rett ned gjennom
-            hele listen uten å flyte fra hverandre. */}
-        <div className="flex items-stretch self-stretch gap-4 flex-shrink-0">
-          <span className="w-[100px] flex items-center justify-center">Varighet</span>
-          <span className="w-[80px] flex items-center justify-center border-l border-[#454545] px-3">Planlagt</span>
-          <span className="w-[80px] flex items-center justify-center border-l border-[#454545] px-3">Ny tid</span>
-        </div>
-        {/* Usynlig, men EKTE kopi av knapperaden (samme 5 knapper som
-            hver punkt-rad har) i stedet for en anslått fast pikselbredde
-            — garanterer at kolonnestripene over alltid lander nøyaktig
-            der de faktiske kolonnene i radene under gjør. */}
-        <div className="flex gap-0.5 flex-shrink-0 ml-2.5 invisible" aria-hidden="true">
-          <button className="btn xs" tabIndex={-1}>↑</button>
-          <button className="btn xs" tabIndex={-1}>↓</button>
-          <button className="btn xs" tabIndex={-1}>✎</button>
-          <button className="btn xs" tabIndex={-1}>▶</button>
-          <button className="btn xs" tabIndex={-1}>✕</button>
-        </div>
-      </div>
+      {/* Kolonneoverskrifter + selve listen er nå EKTE HTML-tabeller (med
+          <colgroup> som deler de to <table>-ene under samme faste
+          kolonnebredder) i stedet for flex-triks — en tabell garanterer
+          at hver kolonne lander nøyaktig samme sted i hver rad, uansett
+          innhold, så all skjevhet fra tidligere runder er strukturelt
+          umulig nå. Overskriften ligger i en egen liten tabell OVENFOR
+          den scrollbare listen (ikke i samme <table>), men siden begge
+          bruker nøyaktig samme <AgendaColGroup>, blir kolonnene like
+          brede likevel. */}
+      {/* Én felles sidescroll-beholder for BÅDE overskrift- og
+          listetabellen, slik at de alltid scroller vannrett i takt på
+          smale skjermer i stedet for at knapperaden klippes usynlig bort
+          (det var det som egentlig skjedde på alle skjermbildene i
+          forrige runde) — vertikal scroll er fortsatt kun på selve
+          listen (egen boks under). */}
+      <div className="overflow-x-auto">
+        <table
+          className="text-[9px] text-[#7d7d7d] uppercase tracking-wide"
+          style={{ tableLayout: "fixed", borderCollapse: "collapse", width: "100%", minWidth: AGENDA_MIN_TABLE_WIDTH }}
+        >
+          <AgendaColGroup />
+          <thead>
+            <tr>
+              <th colSpan={4} className="py-0.5 text-left font-normal" />
+              <th className="py-0.5 text-center font-normal">Varighet</th>
+              <th className="py-0.5 text-center font-normal border-l border-[#454545] px-2">
+                Planlagt
+              </th>
+              <th className="py-0.5 text-center font-normal border-l border-[#454545] px-2">
+                Ny tid
+              </th>
+              <th />
+            </tr>
+          </thead>
+        </table>
 
-      <div className={`flex flex-col gap-2 ${maxHeightClass} overflow-y-auto pr-0.5`}>
-        {agenda.map((item, i) => {
-          if (item.is_section) {
-            return (
-              <SectionRow
-                key={item.key}
-                item={item}
-                i={i}
-                moveUp={moveUp}
-                moveDown={moveDown}
-                openEdit={openEdit}
-                removeItem={removeItem}
-                timeLabel={fmtClock(scheduledTimes[i])}
-                secLabel={itemSum(agenda, i)}
-              />
-            );
-          }
-          const plannedMs = scheduledTimes[i];
-          const clock = fmtClock(plannedMs);
-          const newClock = plannedMs != null ? fmtClock(plannedMs + agendaDriftSecs * 1000) : "";
-          return (
-            <AgendaRow
-              key={item.key}
-              item={item}
-              i={i}
-              num={agenda.slice(0, i + 1).filter((a) => !a.is_section).length}
-              isActive={i === activeIdx}
-              isDone={activeIdx >= 0 && i < activeIdx}
-              clock={clock}
-              newClock={newClock}
-              isLate={agendaDriftSecs > 0}
-              moveUp={moveUp}
-              moveDown={moveDown}
-              openEdit={openEdit}
-              removeItem={removeItem}
-              loadItem={loadItem}
-            />
-          );
-        })}
+        <div className={`${maxHeightClass} overflow-y-auto pr-0.5`}>
+          <table
+            style={{
+              tableLayout: "fixed",
+              borderCollapse: "separate",
+              borderSpacing: "0 6px",
+              width: "100%",
+              minWidth: AGENDA_MIN_TABLE_WIDTH,
+            }}
+          >
+            <AgendaColGroup />
+          <tbody>
+            {(() => {
+              // Følger fargen til den siste bolken vi passerte mens vi
+              // går gjennom listen, slik at hvert punkt kan fargelegges
+              // svakt etter BOLKEN det hører til (ikke punktets egen,
+              // valgfrie farge) — det gjør det tydelig hvilke punkter som
+              // ligger under hvilken bolk, som etterspurt.
+              let sectionColor: string | null = null;
+              return agenda.map((item, i) => {
+                if (item.is_section) {
+                  sectionColor = item.color;
+                  return (
+                    <SectionRow
+                      key={item.key}
+                      item={item}
+                      i={i}
+                      moveUp={moveUp}
+                      moveDown={moveDown}
+                      openEdit={openEdit}
+                      removeItem={removeItem}
+                      timeLabel={fmtClock(scheduledTimes[i])}
+                      secLabel={itemSum(agenda, i)}
+                    />
+                  );
+                }
+                const plannedMs = scheduledTimes[i];
+                const clock = fmtClock(plannedMs);
+                const newClock = plannedMs != null ? fmtClock(plannedMs + agendaDriftSecs * 1000) : "";
+                return (
+                  <AgendaRow
+                    key={item.key}
+                    item={item}
+                    i={i}
+                    num={agenda.slice(0, i + 1).filter((a) => !a.is_section).length}
+                    isActive={i === activeIdx}
+                    isDone={activeIdx >= 0 && i < activeIdx}
+                    clock={clock}
+                    newClock={newClock}
+                    isLate={agendaDriftSecs > 0}
+                    sectionColor={sectionColor}
+                    moveUp={moveUp}
+                    moveDown={moveDown}
+                    openEdit={openEdit}
+                    removeItem={removeItem}
+                    loadItem={loadItem}
+                  />
+                );
+              });
+            })()}
+            </tbody>
+          </table>
+        </div>
       </div>
     </>
   );
@@ -1676,15 +1701,16 @@ export default function ControlPanel({
             </button>
           </div>
 
-          {/* PDF-import (AI-tolket) — egen boks under Excel/CSV-boksen,
-              siden dette er en helt annen import-vei (sender selve
-              PDF-en til en AI-modell i stedet for å lese faste
-              kolonner). Kort forklaring + "Se eksempel"-knapp rett ved
-              siden av, som bedt om, slik at det er tydelig hva slags
-              PDF som funker best FØR man laster opp. */}
+          {/* PDF-import — egen boks under Excel/CSV-boksen, siden dette
+              er en helt annen import-vei (leser ren tekst ut av PDF-en
+              og gjetter seg til punkter/bolker med enkle regler, i
+              stedet for å lese faste kolonner). Kort forklaring + "Se
+              eksempel"-knapp rett ved siden av, som bedt om, slik at det
+              er tydelig hva slags PDF som funker best FØR man laster
+              opp. */}
           <div className="border-t border-[#1e1e1e] pt-2.5 mt-0.5">
             <div className="flex items-center justify-between gap-2 mb-1.5">
-              <div className="ptitle !mb-0">Importer fra PDF (AI-tolket)</div>
+              <div className="ptitle !mb-0">Importer fra PDF</div>
               <button className="text-[10px] text-[#93c5fd] hover:underline flex-shrink-0" onClick={() => setPdfExampleOpen(true)}>
                 Se eksempel
               </button>
@@ -1692,8 +1718,9 @@ export default function ControlPanel({
             <div className="text-[10px] text-[#8a8a8a] leading-relaxed mb-1.5">
               Fungerer best på et program med ren tekst (ikke et skannet
               bilde) — f.eks. en liste med tidspunkt/varighet og navn på
-              hvert punkt, gjerne gruppert i bolker. AI-en gjetter
-              varighet der den ikke står oppgitt.
+              hvert punkt, gjerne gruppert i bolker (linjer som starter
+              med «BOLK:»). Mangler varighet, brukes 10 minutter som
+              utgangspunkt — sjekk og juster gjerne etterpå.
             </div>
             <div
               className={`rounded-md border border-dashed ${
@@ -1935,7 +1962,7 @@ export default function ControlPanel({
               </button>
             </div>
             <p className="text-[11px] text-[#8a8a8a] leading-relaxed">
-              AI-en leser gjennom hele dokumentet og prøver å finne
+              Vi leser gjennom hele dokumentet og prøver å finne
               tidspunkt/varighet, navn på hvert punkt og eventuelle
               bolker/seksjoner den kan grupperes under — omtrent slik:
             </p>
@@ -1952,8 +1979,9 @@ BOLK: Middag
               Det trenger ikke se nøyaktig sånn ut — vanlig, ren tekst
               (ikke et skannet bilde/foto) med tydelige tidspunkt eller
               varigheter fungerer som regel bra. Mangler varighet for et
-              punkt, gjetter AI-en et rimelig anslag. Sjekk alltid over
-              resultatet etterpå, siden AI-tolkning innimellom kan bomme.
+              punkt, brukes 10 minutter som utgangspunkt. Sjekk alltid
+              over resultatet etterpå, siden den automatiske lesingen
+              innimellom kan bomme.
             </p>
           </div>
         </div>
@@ -2596,6 +2624,75 @@ function ColorRow({ value, onChange }: { value: string; onChange: (c: string) =>
   );
 }
 
+/** Konverterer en hex-farge ("#6366f1") til en rgba()-streng med gitt
+ * alpha — brukes til å lage svake fargetoner (bakgrunn per bolk/punkt)
+ * uten å måtte lagre egne "svak variant"-farger for hver av COLORS. */
+function hexToRgba(hex: string, alpha: number): string {
+  const clean = hex.replace("#", "");
+  const full = clean.length === 3 ? clean.split("").map((c) => c + c).join("") : clean;
+  const r = parseInt(full.slice(0, 2), 16);
+  const g = parseInt(full.slice(2, 4), 16);
+  const b = parseInt(full.slice(4, 6), 16);
+  if ([r, g, b].some((n) => Number.isNaN(n))) return `rgba(255,255,255,${alpha})`;
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+/** Faste kolonnebredder DELT mellom overskrift-tabellen og selve
+ * listetabellen (se renderAgendaList) — det er dette som garanterer at
+ * "Varighet"/"Planlagt"/"Ny tid" og knapperaden alltid lander nøyaktig
+ * rett under overskriften, i stedet for de tidligere flex-baserte
+ * anslagene. Navnekolonnen har bevisst INGEN bredde satt — med
+ * table-layout:fixed betyr det at den automatisk får ALT som er igjen
+ * av bredden, akkurat som flex-1 gjorde før, men nå garantert av selve
+ * tabell-algoritmen i stedet for av at innholdet "vanligvis" strekker
+ * seg likt. */
+function AgendaColGroup() {
+  return (
+    <colgroup>
+      <col style={{ width: 22 }} />
+      <col style={{ width: 9 }} />
+      <col style={{ width: 13 }} />
+      <col />
+      <col style={{ width: 100 }} />
+      <col style={{ width: 80 }} />
+      <col style={{ width: 80 }} />
+      <col style={{ width: 150 }} />
+    </colgroup>
+  );
+}
+
+// Summen av de FASTE kolonnene over + en fornuftig minstebredde til
+// navnekolonnen. Brukes som min-width på begge tabellene, slik at de på
+// smale mobilskjermer heller får en egen, kontrollert sidescroll enn at
+// knapperaden klippes usynlig bort utenfor skjermen (det var det som
+// egentlig skjedde på alle skjermbildene i forrige runde).
+const AGENDA_MIN_TABLE_WIDTH = 22 + 9 + 13 + 100 + 80 + 80 + 150 + 70;
+
+/** Bygger stilen som får en gruppe <td>-er i samme rad til å se ut som
+ * ett sammenhengende, avrundet "kort" — topp/bunn-kant på alle celler,
+ * venstre/høyre kant + hjørne-avrunding kun på ytterst-cellene. Fordi
+ * tabellen bruker border-collapse:separate + border-spacing (se
+ * renderAgendaList), tegnes hver rad med luft rundt seg akkurat som de
+ * tidligere "rounded-lg border"-boksene gjorde — bare nå med garantert
+ * kolonnejustering. */
+function rowCardStyle(
+  background: string,
+  borderColor: string,
+  pos: "first" | "middle" | "last"
+): CSSProperties {
+  return {
+    background,
+    borderTop: `1px solid ${borderColor}`,
+    borderBottom: `1px solid ${borderColor}`,
+    borderLeft: pos === "first" ? `1px solid ${borderColor}` : "none",
+    borderRight: pos === "last" ? `1px solid ${borderColor}` : "none",
+    borderTopLeftRadius: pos === "first" ? 8 : 0,
+    borderBottomLeftRadius: pos === "first" ? 8 : 0,
+    borderTopRightRadius: pos === "last" ? 8 : 0,
+    borderBottomRightRadius: pos === "last" ? 8 : 0,
+  };
+}
+
 function SectionRow({
   item,
   i,
@@ -2615,55 +2712,60 @@ function SectionRow({
   openEdit: (i: number) => void;
   removeItem: (i: number) => void;
 }) {
+  // Bolk-rader skal se tydelig ULIKE ut fra vanlige punkt-rader (som
+  // etterspurt): sterkere fargetone fra bolkens egen farge, tykkere
+  // markørstripe og en farget BOLK-merkelapp i stedet for den forrige,
+  // nøytrale grå — i stedet for bare litt fetere tekst.
+  const bg = hexToRgba(item.color, 0.16);
+  const border = hexToRgba(item.color, 0.55);
+  const cell = (pos: "first" | "middle" | "last") => rowCardStyle(bg, border, pos);
+
   return (
-    <div className="flex items-center gap-1.5 px-2.5 py-2 rounded-md mt-1.5 hover:bg-[#141414]">
-      {/* VIKTIG: alt som står FØR det fleksible navnefeltet i denne
-          raden må ha NØYAKTIG samme bredde som i AgendaRow/
-          kolonneoverskriftene (usynlig plassholder for nummer + prikk,
-          siden en bolk verken har nummer eller status-prikk), OG selve
-          BOLK-merket må stå INNI den fleksible navne-sonen sammen med
-          navnet (ikke som et eget, fast element rett før tall-kolonnene)
-          — ellers dytter det tall-kolonnene ekstra mot høyre, siden
-          ingenting da absorberer nettopp DEN bredden. Dette gjelder
-          spesielt på smale/mobile skjermer der raden uansett er for
-          smal til å vise alt (navnet krympes helt bort) — da er det IKKE
-          nok at bredden "vanligvis" absorberes av navnet, den må være
-          identisk uansett hvor mye plass som faktisk finnes. Dette var
-          den egentlige, siste årsaken til at bolk-radenes tall ikke sto
-          rett under "Varighet"/"Planlagt"/"Ny tid", selv etter forrige
-          runde. */}
-      <span className="text-[10px] min-w-[18px] invisible" aria-hidden="true">0</span>
-      <div className="w-[3px] h-[15px] rounded flex-shrink-0" style={{ background: item.color }} />
-      <div className="w-1.5 h-1.5 rounded-full flex-shrink-0 invisible" aria-hidden="true" />
-      <div className="flex items-center gap-1.5 flex-1 min-w-0 overflow-hidden">
-        <span className="text-[9px] text-[#707070] bg-[#141414] rounded px-1.5 py-0.5 flex-shrink-0">BOLK</span>
-        <span className="text-[11px] font-semibold text-[#aaa] truncate tracking-wide">{item.name}</span>
-      </div>
-      {/* Samme FASTE kolonnebredder som AgendaRow/kolonneoverskriftene,
-          slik at bolkens varighet faktisk står rett under "Varighet" i
-          stedet for å flyte fritt (tidligere `ml-1.5`/`ml-auto`, som ga
-          usymmetrisk plassering avhengig av navnelengde). Planlagt/Ny tid
-          har ingen egen verdi for en bolk, men vises som "–" for at
-          kolonnene skal se ut som del av samme rutenett som radene under. */}
-      <div className="flex items-stretch self-stretch gap-4 flex-shrink-0">
-        <span className="text-[10px] text-[#888] font-mono w-[100px] flex items-center justify-center truncate">
-          {timeLabel || secLabel}
-        </span>
-        <span className="text-[10px] text-[#7d7d7d] font-mono w-[80px] flex items-center justify-center border-l border-[#454545] px-3">
-          –
-        </span>
-        <span className="text-[10px] text-[#7d7d7d] font-mono w-[80px] flex items-center justify-center border-l border-[#454545] px-3">
-          –
-        </span>
-      </div>
-      <div className="flex gap-0.5 flex-shrink-0 ml-2.5">
-        <button className="btn xs" onClick={() => moveUp(i)}>↑</button>
-        <button className="btn xs" onClick={() => moveDown(i)}>↓</button>
-        <button className="btn xs" onClick={() => openEdit(i)}>✎</button>
-        <button className="btn xs invisible" tabIndex={-1} aria-hidden="true">▶</button>
-        <button className="btn xs red" onClick={() => removeItem(i)}>✕</button>
-      </div>
-    </div>
+    <tr>
+      <td className="py-2" style={cell("first")} />
+      <td className="p-0" style={cell("middle")}>
+        <div className="h-full min-h-[26px] w-full" style={{ background: item.color }} />
+      </td>
+      <td className="py-2" style={cell("middle")} />
+      <td className="py-2 pr-2" style={{ ...cell("middle"), overflow: "hidden" }}>
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span
+            className="text-[9px] font-semibold tracking-wide rounded px-1.5 py-0.5 flex-shrink-0"
+            style={{ background: hexToRgba(item.color, 0.22), color: item.color }}
+          >
+            BOLK
+          </span>
+          <span className="text-[11px] font-semibold text-[#eee] truncate tracking-wide flex-1 min-w-0">{item.name}</span>
+        </div>
+      </td>
+      <td
+        className="text-[10px] text-[#aaa] font-mono text-center truncate"
+        style={cell("middle")}
+      >
+        {timeLabel || secLabel}
+      </td>
+      <td
+        className="text-[10px] text-[#7d7d7d] font-mono text-center border-l border-[#454545]"
+        style={cell("middle")}
+      >
+        –
+      </td>
+      <td
+        className="text-[10px] text-[#7d7d7d] font-mono text-center border-l border-[#454545]"
+        style={cell("middle")}
+      >
+        –
+      </td>
+      <td className="py-2 pl-2.5" style={cell("last")}>
+        <div className="flex gap-0.5">
+          <button className="btn xs" onClick={() => moveUp(i)}>↑</button>
+          <button className="btn xs" onClick={() => moveDown(i)}>↓</button>
+          <button className="btn xs" onClick={() => openEdit(i)}>✎</button>
+          <button className="btn xs invisible" tabIndex={-1} aria-hidden="true">▶</button>
+          <button className="btn xs red" onClick={() => removeItem(i)}>✕</button>
+        </div>
+      </td>
+    </tr>
   );
 }
 
@@ -2676,6 +2778,7 @@ function AgendaRow({
   clock,
   newClock,
   isLate,
+  sectionColor,
   moveUp,
   moveDown,
   openEdit,
@@ -2690,57 +2793,74 @@ function AgendaRow({
   clock: string;
   newClock: string;
   isLate: boolean;
+  sectionColor: string | null;
   moveUp: (i: number) => void;
   moveDown: (i: number) => void;
   openEdit: (i: number) => void;
   removeItem: (i: number) => void;
   loadItem: (i: number) => void;
 }) {
+  // Svak bakgrunnstone fra BOLKEN punktet ligger under (ikke punktets
+  // egen, valgfrie farge) — det er dette som gjør det tydelig hvilke
+  // punkter som hører til hvilken bolk, som etterspurt. Aktive punkter
+  // overstyrer med den vanlige blå fremhevingen.
+  const bg = isActive ? "#0d1f36" : sectionColor ? hexToRgba(sectionColor, 0.055) : "transparent";
+  const border = isActive ? "#2563eb" : "#1e1e1e";
+  const cell = (pos: "first" | "middle" | "last") => ({
+    ...rowCardStyle(bg, border, pos),
+    opacity: isDone ? 0.35 : 1,
+    cursor: "pointer",
+  });
+
   return (
-    <div
-      className={`rounded-lg border ${
-        isActive ? "border-[#2563eb] bg-[#080f18]" : "border-[#1e1e1e]"
-      } ${isDone ? "opacity-35" : ""}`}
-    >
-      <div className="flex items-center gap-1.5 px-2.5 py-2 cursor-pointer" onClick={() => loadItem(i)}>
-        <span className="text-[10px] text-[#707070] min-w-[18px]">{num}</span>
-        <div className="w-[3px] self-stretch rounded flex-shrink-0" style={{ background: item.color }} />
+    <tr onClick={() => loadItem(i)}>
+      <td className="py-2 text-[10px] text-[#707070] text-center" style={cell("first")}>
+        {num}
+      </td>
+      <td className="p-0" style={cell("middle")}>
+        <div className="h-full min-h-[26px] w-[3px] mx-auto rounded" style={{ background: item.color }} />
+      </td>
+      <td className="py-2" style={cell("middle")}>
         <div
-          className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+          className={`w-1.5 h-1.5 rounded-full mx-auto ${
             isActive ? "bg-[#4ade80] animate-prodpilot-pulse" : isDone ? "bg-[#1e1e1e]" : "bg-[#2a2a2a]"
           }`}
         />
-        <span className="text-xs flex-1 min-w-0 truncate">{item.name}</span>
-        {/* Tre FASTE kolonner (Varighet / Planlagt / Ny tid) — alltid
-            rendret med samme bredde, med "–" som plassholder når det ikke
-            finnes data ennå, slik at raden aldri endrer form/bredde når man
-            trykker Start og feltene fylles med faktiske klokkeslett. Litt
-            mer luft + tynne skillestreker mellom dem, samme mønster som
-            kolonneoverskriftene over. */}
-        <div className="flex items-stretch self-stretch gap-4 flex-shrink-0">
-          <span className="text-[10px] text-[#888] font-mono w-[100px] flex items-center justify-center truncate">
-            {fmtDuration(item.duration_secs)}
-          </span>
-          <span className="text-[10px] text-[#888] font-mono w-[80px] flex items-center justify-center border-l border-[#454545] px-3">
-            {clock || "–"}
-          </span>
-          <span
-            className={`text-[10px] font-mono w-[80px] flex items-center justify-center border-l border-[#454545] px-3 ${
-              newClock && newClock !== clock ? (isLate ? "text-[#f87171]" : "text-[#4ade80]") : "text-[#888]"
-            }`}
-          >
-            {newClock || clock || "–"}
-          </span>
+      </td>
+      <td className="py-2 pr-2" style={{ ...cell("middle"), overflow: "hidden" }}>
+        <div className="min-w-0">
+          <span className="text-xs truncate block">{item.name}</span>
+          {item.note && (
+            <span className="text-[10px] text-[#707070] italic truncate block leading-tight">{item.note}</span>
+          )}
         </div>
-        <div className="flex gap-0.5 flex-shrink-0 ml-2.5" onClick={(e) => e.stopPropagation()}>
+      </td>
+      <td className="text-[10px] text-[#888] font-mono text-center truncate" style={cell("middle")}>
+        {fmtDuration(item.duration_secs)}
+      </td>
+      <td
+        className="text-[10px] text-[#888] font-mono text-center border-l border-[#454545]"
+        style={cell("middle")}
+      >
+        {clock || "–"}
+      </td>
+      <td
+        className={`text-[10px] font-mono text-center border-l border-[#454545] ${
+          newClock && newClock !== clock ? (isLate ? "text-[#f87171]" : "text-[#4ade80]") : "text-[#888]"
+        }`}
+        style={cell("middle")}
+      >
+        {newClock || clock || "–"}
+      </td>
+      <td className="py-2 pl-2.5" style={{ ...cell("last"), cursor: "default" }} onClick={(e) => e.stopPropagation()}>
+        <div className="flex gap-0.5">
           <button className="btn xs" onClick={() => moveUp(i)}>↑</button>
           <button className="btn xs" onClick={() => moveDown(i)}>↓</button>
           <button className="btn xs" onClick={() => openEdit(i)}>✎</button>
           <button className="btn xs" onClick={() => loadItem(i)}>▶</button>
           <button className="btn xs red" onClick={() => removeItem(i)}>✕</button>
         </div>
-      </div>
-      {item.note && <div className="text-[10px] text-[#707070] italic leading-relaxed px-2.5 pb-2 pl-9">{item.note}</div>}
-    </div>
+      </td>
+    </tr>
   );
 }

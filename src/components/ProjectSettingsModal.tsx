@@ -311,11 +311,11 @@ export default function ProjectSettingsModal({
             </button>
           </div>
 
-          {/* PDF-import (AI-tolket) — se forklaring i ControlPanel.tsx sin
-              versjon av denne boksen (samme oppførsel, delt via props). */}
+          {/* PDF-import — se forklaring i ControlPanel.tsx sin versjon av
+              denne boksen (samme oppførsel, delt via props). */}
           <div className="border-t border-[#1e1e1e] pt-2.5 mt-0.5">
             <div className="flex items-center justify-between gap-2 mb-1.5">
-              <div className="ptitle !mb-0">Importer fra PDF (AI-tolket)</div>
+              <div className="ptitle !mb-0">Importer fra PDF</div>
               <button className="text-[10px] text-[#93c5fd] hover:underline flex-shrink-0" onClick={onShowPdfExample}>
                 Se eksempel
               </button>
@@ -323,8 +323,9 @@ export default function ProjectSettingsModal({
             <div className="text-[10px] text-[#8a8a8a] leading-relaxed mb-1.5">
               Fungerer best på et program med ren tekst (ikke et skannet
               bilde) — f.eks. en liste med tidspunkt/varighet og navn på
-              hvert punkt, gjerne gruppert i bolker. AI-en gjetter
-              varighet der den ikke står oppgitt.
+              hvert punkt, gjerne gruppert i bolker (linjer som starter
+              med «BOLK:»). Mangler varighet, brukes 10 minutter som
+              utgangspunkt — sjekk og juster gjerne etterpå.
             </div>
             <div
               className={`rounded-md border border-dashed ${
