@@ -157,6 +157,18 @@ export default function DisplayScreen({ sessionId }: { sessionId: string }) {
   const hasActive = activeIdx >= 0 && !agenda[activeIdx]?.is_section;
   const absStatus = Math.abs(liveStatus);
 
+  // Nedtelling til planlagt starttidspunkt (kun FØR programmet er i gang —
+  // når det først er en aktiv post, viser statuspillen avvik mot planen i
+  // stedet, som før). Bruker et ferskt `Date.now()`-kall direkte her (ikke
+  // en memoized verdi) — komponenten rendres uansett på nytt hvert sekund
+  // via `nowTick`, så dette holder seg friskt uten den kjente to-klokke-
+  // desync-bugen som er dokumentert flere ganger tidligere i appen.
+  const scheduledStartMs = session.program_scheduled_ms || 0;
+  const showStartCountdown = !hasActive && scheduledStartMs > 0;
+  const startRemainingSecs = showStartCountdown
+    ? Math.round((scheduledStartMs - Date.now()) / 1000)
+    : 0;
+
   return (
     // `h-dvh` + en egen, IKKE fast-posisjonert meldingsrad nederst i stedet
     // for `min-h-screen` + `position: fixed` — meldingen fikk tidligere sin
@@ -178,30 +190,34 @@ export default function DisplayScreen({ sessionId }: { sessionId: string }) {
         />
       )}
 
-      <div className="flex-1 min-h-0 overflow-y-auto flex flex-col items-center justify-center gap-8 px-6 sm:px-10 py-12">
+      <div className="flex-1 min-h-0 overflow-y-auto flex flex-col items-center justify-center gap-6 px-6 sm:px-10 py-8">
       {session.active_section && (
-        <div className="text-lg md:text-2xl uppercase tracking-[0.25em] text-white/40">
+        <div className="text-base md:text-xl uppercase tracking-[0.25em] text-white/40">
           {session.active_section}
         </div>
       )}
 
-      <div className="text-3xl md:text-5xl font-semibold text-center">
-        {hasActive ? session.active_label : "Venter på start…"}
+      {/* Før programmet er i gang: viser prosjektets navn i stedet for det
+          tidligere, litt intetsigende "Venter på start…" — forsvinner av
+          seg selv idet en post faktisk blir aktiv (ternary under). */}
+      <div className="text-2xl md:text-4xl font-semibold text-center">
+        {hasActive ? session.active_label : session.name || "Prodpilot"}
       </div>
 
       {/* Farges ALDRI etter punktets/bolkens egen farge lenger — kun hvit
-          (normalt) og rødt (overtid), som resten av tidtakerne i appen. */}
+          (normalt) og rødt (overtid), som resten av tidtakerne i appen.
+          Noe mindre enn før (var 18vw/220px) — ble opplevd som vel stort. */}
       <div
-        className={`font-bold tabular-nums leading-none text-[18vw] md:text-[220px] ${
+        className={`font-bold tabular-nums leading-none text-[15vw] md:text-[180px] ${
           isOvertime ? "text-[#f87171]" : "text-white"
         }`}
       >
         {hasActive ? (isOvertime ? "+" : "") + fmt(absRem) : "--:--"}
       </div>
 
-      {hasActive && (
+      {hasActive ? (
         <div
-          className={`text-lg md:text-2xl font-semibold px-6 py-2 rounded-full border ${
+          className={`text-base md:text-xl font-semibold px-5 py-1.5 rounded-full border ${
             absStatus < 2
               ? "border-white/20 text-white/50"
               : liveStatus > 0
@@ -211,7 +227,14 @@ export default function DisplayScreen({ sessionId }: { sessionId: string }) {
         >
           {absStatus < 2 ? "0:00" : (liveStatus > 0 ? "+" : "-") + fmt(absStatus)}
         </div>
-      )}
+      ) : showStartCountdown ? (
+        <div className="text-base md:text-xl font-semibold px-5 py-1.5 rounded-full border border-white/20 text-white/60">
+          Tid til programstart{" "}
+          <span className="font-bold text-white">
+            {fmt(Math.max(0, startRemainingSecs))}
+          </span>
+        </div>
+      ) : null}
 
       {upcoming.length > 0 && (
         <div className="flex flex-col items-center gap-3 mt-4 w-full">
@@ -277,18 +300,29 @@ export default function DisplayScreen({ sessionId }: { sessionId: string }) {
       )}
       </div>
 
-      {/* Meldingen er nå en egen rad i selve layouten (ikke lenger
-          `position: fixed`) — den får dermed alltid sin egen plass i stedet
-          for å kunne havne oppå innholdet over. Gjort tydelig større/mer
-          lesbar (mer luft, større skrift) enn før — den var fortsatt litt
-          lav/beskjeden til å bli sett fra avstand. */}
-      {session.message && (
-        <div className="flex-shrink-0 flex items-center justify-center px-6 pb-8 pt-3 sm:px-10">
-          <div className="bg-[#fde68a] text-[#3a2a00] font-semibold text-xl md:text-4xl px-8 md:px-12 py-4 md:py-7 rounded-full shadow-2xl max-w-[90vw] text-center">
-            {session.message}
-          </div>
+      {/* Meldingsraden reserverer nå ALLTID nøyaktig samme plass — enten
+          det faktisk er en aktiv melding eller ikke — med samme
+          "usynlig målestokk + overlegg"-mønster som er brukt andre steder
+          i appen (bl.a. "Planlagt start" i kontrollpanelet). Tidligere var
+          denne raden kun til stede når en melding faktisk fantes, så resten
+          av skjermen (som deler samme flex-1-område over) hoppet/endret seg
+          hver gang en melding ble sendt eller fjernet. Litt mindre enn
+          forrige runde (var text-xl/4xl) — ble opplevd som vel stor. */}
+      <div className="flex-shrink-0 relative flex items-center justify-center px-6 pb-6 pt-3 sm:px-10">
+        <div
+          aria-hidden
+          className="invisible font-semibold text-lg md:text-3xl px-6 md:px-10 py-3 md:py-5 rounded-full max-w-[90vw] text-center leading-snug"
+        >
+          X<br />X
         </div>
-      )}
+        {session.message && (
+          <div className="absolute inset-0 flex items-center justify-center px-6 sm:px-10">
+            <div className="bg-[#fde68a] text-[#3a2a00] font-semibold text-lg md:text-3xl px-6 md:px-10 py-3 md:py-5 rounded-full shadow-2xl max-w-[90vw] text-center leading-snug line-clamp-2">
+              {session.message}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

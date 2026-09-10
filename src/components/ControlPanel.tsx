@@ -1717,21 +1717,6 @@ export default function ControlPanel({
 
   const renderAgendaList = (maxHeightClass: string, editable: boolean = false) => (
     <>
-      <div className="flex items-center">
-        <span className="text-[10px] text-[#8a8a8a]">
-          {agenda.filter((a) => !a.is_section).length === 0
-            ? "Ingen punkter"
-            : `${agenda.filter((a) => !a.is_section).length} punkt${
-                agenda.filter((a) => !a.is_section).length === 1 ? "" : "er"
-              }`}
-        </span>
-        {canEdit && (
-          <button className="btn xs red ml-auto" onClick={clearAll}>
-            Tøm alt
-          </button>
-        )}
-      </div>
-
       {/* Kolonneoverskrifter + selve listen er nå EKTE HTML-tabeller (med
           <colgroup> som deler de to <table>-ene under samme faste
           kolonnebredder) i stedet for flex-triks — en tabell garanterer
@@ -1755,7 +1740,31 @@ export default function ControlPanel({
           <AgendaColGroup />
           <thead>
             <tr>
-              <th colSpan={4} className="py-0.5 text-left font-normal" />
+              {/* "X punkter"/"Tøm alt" lå tidligere i en egen rad OVENFOR
+                  denne tabellen, med synlig luft mellom seg og selve
+                  kolonneoverskriftene — flyttet inn i selve overskrift-
+                  raden (denne cella) slik at den nå står PÅ SAMME LINJE
+                  som "Varighet" osv., som etterspurt, og luften over
+                  programlisten er dermed borte. "Tøm alt" er nå kun
+                  synlig i "Rediger program" (`editable`), ikke lenger på
+                  selve hovedsiden — samme knapp, bare fjernet derfra
+                  siden all programredigering uansett har flyttet dit. */}
+              <th colSpan={4} className="py-0.5 text-left font-normal normal-case tracking-normal">
+                <div className="flex items-center">
+                  <span className="text-[10px] text-[#8a8a8a]">
+                    {agenda.filter((a) => !a.is_section).length === 0
+                      ? "Ingen punkter"
+                      : `${agenda.filter((a) => !a.is_section).length} punkt${
+                          agenda.filter((a) => !a.is_section).length === 1 ? "" : "er"
+                        }`}
+                  </span>
+                  {editable && canEdit && (
+                    <button className="btn xs red ml-auto" onClick={clearAll}>
+                      Tøm alt
+                    </button>
+                  )}
+                </div>
+              </th>
               <th className="py-0.5 text-center font-normal">Varighet</th>
               <th className="py-0.5 text-center font-normal border-l border-[#454545] px-2">
                 Planlagt
