@@ -437,15 +437,28 @@ export default function ProjectSettingsModal({
               <div className="flex flex-col gap-1.5 mt-1">
                 {shares.map((s) => (
                   <div key={s.email} className="flex items-center justify-between gap-1.5">
-                    <span className="text-xs text-[#ccc] truncate flex-1 min-w-0">{s.email}</span>
-                    <select
-                      className="input text-[10px] !py-1 flex-shrink-0 w-[132px]"
-                      value={s.role}
-                      onChange={(e) => onUpdateShareRole(s.email, e.target.value as ShareRole)}
-                    >
-                      <option value="editor">Kan redigere</option>
-                      <option value="viewer">Kan kun se</option>
-                    </select>
+                    <span className="text-xs text-[#ccc] truncate flex-1 min-w-0" title={s.email}>
+                      {s.email}
+                    </span>
+                    {/* Fast bredde ligger på DENNE wrapper-div-en, ikke på
+                        selve `.input`-elementet — samme fiks som er brukt
+                        flere ganger før i appen (bl.a. runde 18) for
+                        akkurat denne kollisjonen: `.input`-klassen setter
+                        `width:100%`, som ellers vinner over en Tailwind
+                        fast-bredde-klasse satt DIREKTE på et `.input`-felt
+                        i en flex-rad — det fikk denne nedtrekksmenyen til
+                        å presse seg ut over hele radens bredde og dytte
+                        "Fjern"-knappen ut av synsfeltet. */}
+                    <div className="w-[132px] flex-shrink-0">
+                      <select
+                        className="input text-[10px] !py-1"
+                        value={s.role}
+                        onChange={(e) => onUpdateShareRole(s.email, e.target.value as ShareRole)}
+                      >
+                        <option value="editor">Kan redigere</option>
+                        <option value="viewer">Kan kun se</option>
+                      </select>
+                    </div>
                     <button className="btn xs red flex-shrink-0" onClick={() => onRemoveShare(s.email)}>
                       Fjern
                     </button>
