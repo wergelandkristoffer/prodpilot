@@ -7,7 +7,7 @@ import { isSupabaseConfigured, supabase } from "@/lib/supabase";
 import SupabaseSetupNotice from "@/components/SupabaseSetupNotice";
 import ProjectSidebar, { ProjectOption } from "@/components/ProjectSidebar";
 import ProjectSettingsModal from "@/components/ProjectSettingsModal";
-import { COLORS, SessionRow, ShareRow } from "@/lib/types";
+import { COLORS, SessionRow, ShareRow, ShareRole } from "@/lib/types";
 import { fmt, fmtClock, fmtDuration, calcRemaining } from "@/lib/timer";
 import { useLiveRemaining } from "@/hooks/useLiveRemaining";
 
@@ -203,8 +203,28 @@ export default function ControlPanel({
   // man selv eier prosjektet — se effekten som kaller `refreshShares`).
   const [shares, setShares] = useState<ShareRow[]>([]);
   const [newShareEmail, setNewShareEmail] = useState("");
+  const [newShareRole, setNewShareRole] = useState<ShareRole>("editor");
   const [shareStatus, setShareStatus] = useState("");
   const isOwner = !!session && session.owner_id === userId;
+  // Hvilken rolle INNLOGGET BRUKER selv har på det ÅPNE prosjektet, når det
+  // er delt med dem (ikke eid av dem selv) — avgjør om man i det hele tatt
+  // får se redigeringsknappene (se `canEdit` under). `null` mens den ennå
+  // ikke er slått opp, eller for egne/uåpnede prosjekter.
+  const [myShareRole, setMyShareRole] = useState<ShareRole | null>(null);
+  // Eier har alltid full tilgang. Delt bruker har det kun når rollen deres
+  // er "editor". Mens rollen for et delt prosjekt ennå ikke er hentet
+  // (kort øyeblikk rett etter man bytter til det), holder vi
+  // redigeringsknappene skjult i stedet for å vise dem og så rykke dem
+  // bort igjen — tryggere å starte strengt og åpne opp enn omvendt.
+  const canEdit = isOwner || myShareRole === "editor";
+
+  // Sikkerhetsnett: hvis man på et vis står i "Rediger program" idet
+  // tilgangen faller til "kun se" (f.eks. eieren endrer rollen mens man
+  // står der), lukkes redigeringsvisningen automatisk i stedet for å bli
+  // stående uten synlig vei ut (selve knappen som åpner den er jo skjult).
+  useEffect(() => {
+    if (!canEdit) setEditMode(false);
+  }, [canEdit]);
 
   // Husker hvilke agenda_items-id-er som (så vidt vi vet) faktisk ligger i
   // databasen akkurat nå — brukes av `syncAgenda` til å slette KUN rader
@@ -293,7 +313,7 @@ export default function ControlPanel({
         .order("updated_at", { ascending: false }),
       supabase
         .from("project_shares")
-        .select("session_id,shared_by_email")
+        .select("session_id,shared_by_email,role")
         .eq("email", userEmail.toLowerCase()),
     ]);
 
@@ -309,12 +329,16 @@ export default function ControlPanel({
         .from("sessions")
         .select("id,name,updated_at")
         .in("id", ids);
-      const ownerEmailBySession = new Map(sharedRows.map((r) => [r.session_id, r.shared_by_email]));
-      sharedList = (sharedSessions ?? []).map((p) => ({
-        ...p,
-        isShared: true,
-        ownerEmail: ownerEmailBySession.get(p.id) || "",
-      }));
+      const shareBySession = new Map(sharedRows.map((r) => [r.session_id, r]));
+      sharedList = (sharedSessions ?? []).map((p) => {
+        const share = shareBySession.get(p.id);
+        return {
+          ...p,
+          isShared: true,
+          ownerEmail: share?.shared_by_email || "",
+          myRole: (share?.role as ShareRole) || "editor",
+        };
+      });
     }
 
     setProjects(
@@ -327,6 +351,37 @@ export default function ControlPanel({
   useEffect(() => {
     refreshProjects();
   }, [refreshProjects]);
+
+  // Hvilken rolle innlogget bruker selv har på det prosjektet som ER åpent
+  // akkurat nå (kun relevant når man IKKE eier det selv) — avgjør om
+  // redigeringsknappene (Rediger program, flytt/rediger/slett-knappene på
+  // hver rad, osv.) i det hele tatt vises, se `canEdit` over. Slått opp på
+  // nytt hver gang man bytter prosjekt, uavhengig av hvordan man kom dit
+  // (prosjektlisten, en direkte lenke, e.l.) — robust uansett navigasjons-
+  // vei, ikke avhengig av at prosjektet tilfeldigvis ligger i `projects`.
+  useEffect(() => {
+    if (!sessionId || !session) {
+      setMyShareRole(null);
+      return;
+    }
+    if (session.owner_id === userId) {
+      setMyShareRole(null); // eier — `canEdit` bruker `isOwner`, ikke denne
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from("project_shares")
+        .select("role")
+        .eq("session_id", sessionId)
+        .eq("email", userEmail.toLowerCase())
+        .maybeSingle();
+      if (!cancelled) setMyShareRole((data?.role as ShareRole) || "viewer");
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId, session, userId, userEmail]);
 
   // Delingene på det ÅPNE prosjektet (kun meningsfullt når man selv eier
   // det — ellers vises ikke "Del prosjekt"-panelet i det hele tatt, se
@@ -350,7 +405,7 @@ export default function ControlPanel({
   }, [settingsOpen, isOwner, refreshShares]);
 
   const addShare = useCallback(async () => {
-    if (!sessionId) return;
+    if (!sessionId || !session) return;
     const email = newShareEmail.trim().toLowerCase();
     if (!email || !email.includes("@")) {
       setShareStatus("Skriv inn en gyldig e-postadresse.");
@@ -362,7 +417,7 @@ export default function ControlPanel({
     }
     const { error } = await supabase
       .from("project_shares")
-      .insert({ session_id: sessionId, email, shared_by_email: userEmail });
+      .insert({ session_id: sessionId, email, shared_by_email: userEmail, role: newShareRole });
     if (error) {
       setShareStatus(
         error.code === "23505" ? "Allerede delt med denne e-posten." : "Kunne ikke dele prosjektet."
@@ -373,7 +428,26 @@ export default function ControlPanel({
     setNewShareEmail("");
     setShareStatus("");
     refreshShares();
-  }, [sessionId, newShareEmail, userEmail, refreshShares]);
+    // Varsler mottakeren på e-post om at noen ønsker å dele et program med
+    // dem — best-effort: en feilet e-post skal ALDRI la deling selv se ut
+    // som mislykket (raden er uansett allerede lagret over), så feil her
+    // logges bare til konsollen, ikke vist til brukeren.
+    try {
+      const res = await fetch("/api/send-share-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          to: email,
+          projectName: session.name || "Uten navn",
+          ownerEmail: userEmail,
+          role: newShareRole,
+        }),
+      });
+      if (!res.ok) console.error("Kunne ikke sende varsel-e-post om deling:", await res.text());
+    } catch (err) {
+      console.error("Kunne ikke sende varsel-e-post om deling:", err);
+    }
+  }, [sessionId, session, newShareEmail, newShareRole, userEmail, refreshShares]);
 
   const removeShare = useCallback(
     async (email: string) => {
@@ -388,6 +462,27 @@ export default function ControlPanel({
         return;
       }
       refreshShares();
+    },
+    [sessionId, refreshShares]
+  );
+
+  // Endrer tilgangsnivået ("kan redigere"/"kan kun se") på en EKSISTERENDE
+  // deling — brukt av rolle-nedtrekket ved siden av hver rad i "Del
+  // prosjekt". Oppdaterer lokalt med det samme for rask tilbakemelding, i
+  // tillegg til å skrive til Supabase.
+  const updateShareRole = useCallback(
+    async (email: string, role: ShareRole) => {
+      if (!sessionId) return;
+      setShares((prev) => prev.map((s) => (s.email === email ? { ...s, role } : s)));
+      const { error } = await supabase
+        .from("project_shares")
+        .update({ role })
+        .eq("session_id", sessionId)
+        .eq("email", email);
+      if (error) {
+        console.error("Kunne ikke endre tilgangsnivå:", error);
+        refreshShares(); // rull tilbake den lokale endringen ved feil
+      }
     },
     [sessionId, refreshShares]
   );
@@ -1630,9 +1725,11 @@ export default function ControlPanel({
                 agenda.filter((a) => !a.is_section).length === 1 ? "" : "er"
               }`}
         </span>
-        <button className="btn xs red ml-auto" onClick={clearAll}>
-          Tøm alt
-        </button>
+        {canEdit && (
+          <button className="btn xs red ml-auto" onClick={clearAll}>
+            Tøm alt
+          </button>
+        )}
       </div>
 
       {/* Kolonneoverskrifter + selve listen er nå EKTE HTML-tabeller (med
@@ -1708,7 +1805,7 @@ export default function ControlPanel({
               // RETT DER i listen, i stedet for alltid nederst — se
               // `openAddItemAt`/`openAddSectionAt`/`insertAtIndex`.
               const insertRow = (i: number) =>
-                editable && (
+                editable && canEdit && (
                   <tr>
                     <td colSpan={8} className="pb-1 pt-0.5">
                       <div className="flex gap-1.5 justify-center">
@@ -1745,6 +1842,7 @@ export default function ControlPanel({
                         timeLabel={fmtClock(scheduledTimes[i])}
                         secLabel={itemSum(agenda, i)}
                         isDone={isDone}
+                        canEdit={canEdit}
                       />
                       {insertRow(i)}
                     </Fragment>
@@ -1770,6 +1868,7 @@ export default function ControlPanel({
                       openEdit={openEdit}
                       removeItem={removeItem}
                       loadItem={loadItem}
+                      canEdit={canEdit}
                     />
                     {insertRow(i)}
                   </Fragment>
@@ -1789,23 +1888,10 @@ export default function ControlPanel({
   const programPanel = (
     <div className="panel gap-3.5 h-full min-h-0">
       <div className="ptitle">Program</div>
-      <div className="grid grid-cols-2 gap-1.5">
-        <button
-          className="btn blue"
-          onClick={() => {
-            setNewItemSectionKey("");
-            setAddItemOpen(true);
-          }}
-        >
-          + Legg til punkt
-        </button>
-        <button className="btn purple" onClick={() => setAddSectionOpen(true)}>
-          + Legg til bolk
-        </button>
-      </div>
-      {/* Ingen fast minstehøyde her lenger — listen skal bla INNAD i boksen
-          uansett hvor mye plass boksen faktisk får, i stedet for å presse
-          hele siden til å vokse/bla. */}
+      {/* "+ Legg til punkt"/"+ Legg til bolk" er fjernet herfra — all
+          oppbygging av programmet skjer nå kun inne i "Rediger program",
+          som etterspurt. Boksen beholder samme størrelse/scroll-oppførsel
+          som før (`flex-1 min-h-0`) — kun de to knappene er borte. */}
       {renderAgendaList("flex-1 min-h-0")}
     </div>
   );
@@ -2284,12 +2370,16 @@ BOLK: Middag
             setShareStatus("");
           }}
           isOwner={isOwner}
+          canEdit={canEdit}
           shares={shares}
           newShareEmail={newShareEmail}
           onNewShareEmailChange={setNewShareEmail}
+          newShareRole={newShareRole}
+          onNewShareRoleChange={setNewShareRole}
           shareStatus={shareStatus}
           onAddShare={addShare}
           onRemoveShare={removeShare}
+          onUpdateShareRole={updateShareRole}
           nameDraft={nameDraft}
           onNameDraftChange={setNameDraft}
           onNameBlur={() => renameCurrentProject(nameDraft)}
@@ -2350,7 +2440,7 @@ BOLK: Middag
               <line x1="4" y1="12" x2="20" y2="12" />
               <line x1="4" y1="17" x2="20" y2="17" />
             </svg>
-            Prosjekter
+            Meny
           </button>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/prodpilot-logo.png" alt="Prodpilot" className="h-6 w-auto" />
@@ -2382,12 +2472,17 @@ BOLK: Middag
                   ⚙ Innstillinger
                 </button>
               )}
-              <button
-                className={`btn sm flex-shrink-0 ${editMode ? "green" : ""}`}
-                onClick={() => setEditMode((v) => !v)}
-              >
-                {editMode ? "✓ Ferdig med redigering" : "✎ Rediger program"}
-              </button>
+              {/* Skjult for en "viewer"-delt bruker (kan se og starte
+                  programmet, dele lenker — men ikke redigere selve
+                  programmet). */}
+              {canEdit && (
+                <button
+                  className={`btn sm flex-shrink-0 ${editMode ? "green" : ""}`}
+                  onClick={() => setEditMode((v) => !v)}
+                >
+                  {editMode ? "✓ Ferdig med redigering" : "✎ Rediger program"}
+                </button>
+              )}
             </div>
 
             {/* Fjernkontroll / visningsskjerm — små knapper med Åpne/Kopier-valg.
@@ -2970,6 +3065,7 @@ function SectionRow({
   openEdit,
   removeItem,
   isDone,
+  canEdit,
 }: {
   item: LocalItem;
   i: number;
@@ -2980,6 +3076,7 @@ function SectionRow({
   openEdit: (i: number) => void;
   removeItem: (i: number) => void;
   isDone: boolean;
+  canEdit: boolean;
 }) {
   // Bolk-rader skal se tydelig ULIKE ut fra vanlige punkt-rader (som
   // etterspurt): sterkere fargetone fra bolkens egen farge, tykkere
@@ -3032,13 +3129,18 @@ function SectionRow({
         –
       </td>
       <td className="py-2 pl-2.5" style={cell("last")}>
-        <div className="flex gap-0.5">
-          <button className="btn xs" onClick={() => moveUp(i)}>↑</button>
-          <button className="btn xs" onClick={() => moveDown(i)}>↓</button>
-          <button className="btn xs" onClick={() => openEdit(i)}>✎</button>
-          <button className="btn xs invisible" tabIndex={-1} aria-hidden="true">▶</button>
-          <button className="btn xs red" onClick={() => removeItem(i)}>✕</button>
-        </div>
+        {/* Flytt/rediger/slett er skjult for en "viewer"-delt bruker (kan
+            kun se og starte programmet) — selve <td>-en beholdes tom slik
+            at kolonnebredden (fra <AgendaColGroup>) ikke påvirkes. */}
+        {canEdit && (
+          <div className="flex gap-0.5">
+            <button className="btn xs" onClick={() => moveUp(i)}>↑</button>
+            <button className="btn xs" onClick={() => moveDown(i)}>↓</button>
+            <button className="btn xs" onClick={() => openEdit(i)}>✎</button>
+            <button className="btn xs invisible" tabIndex={-1} aria-hidden="true">▶</button>
+            <button className="btn xs red" onClick={() => removeItem(i)}>✕</button>
+          </div>
+        )}
       </td>
     </tr>
   );
@@ -3059,6 +3161,7 @@ function AgendaRow({
   openEdit,
   removeItem,
   loadItem,
+  canEdit,
 }: {
   item: LocalItem;
   i: number;
@@ -3074,6 +3177,7 @@ function AgendaRow({
   openEdit: (i: number) => void;
   removeItem: (i: number) => void;
   loadItem: (i: number) => void;
+  canEdit: boolean;
 }) {
   // Svak bakgrunnstone fra BOLKEN punktet ligger under (ikke punktets
   // egen, valgfrie farge) — det er dette som gjør det tydelig hvilke
@@ -3128,12 +3232,22 @@ function AgendaRow({
         {newClock || clock || "–"}
       </td>
       <td className="py-2 pl-2.5" style={{ ...cell("last"), cursor: "default" }} onClick={(e) => e.stopPropagation()}>
+        {/* ▶ ("hopp til punkt") regnes som å STYRE avspilling, ikke å
+            redigere programmet — den er derfor alltid synlig, også for en
+            "viewer"-delt bruker (kan se og starte programmet). Kun
+            ↑ ↓ ✎ ✕ (som faktisk endrer selve programmet) er skjult da. */}
         <div className="flex gap-0.5">
-          <button className="btn xs" onClick={() => moveUp(i)}>↑</button>
-          <button className="btn xs" onClick={() => moveDown(i)}>↓</button>
-          <button className="btn xs" onClick={() => openEdit(i)}>✎</button>
+          {canEdit && (
+            <>
+              <button className="btn xs" onClick={() => moveUp(i)}>↑</button>
+              <button className="btn xs" onClick={() => moveDown(i)}>↓</button>
+              <button className="btn xs" onClick={() => openEdit(i)}>✎</button>
+            </>
+          )}
           <button className="btn xs" onClick={() => loadItem(i)}>▶</button>
-          <button className="btn xs red" onClick={() => removeItem(i)}>✕</button>
+          {canEdit && (
+            <button className="btn xs red" onClick={() => removeItem(i)}>✕</button>
+          )}
         </div>
       </td>
     </tr>

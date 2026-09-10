@@ -72,6 +72,11 @@ export interface AgendaSnapshotItem {
   color?: string;
 }
 
+// Tilgangsnivået en deling gir: "editor" kan redigere programmet akkurat
+// som eieren, "viewer" kan kun se det, starte/styre avspilling og dele
+// lenker videre — ikke legge til/endre/flytte/slette punkter og bolker.
+export type ShareRole = "editor" | "viewer";
+
 // En delt tilgang til et prosjekt — se "Del prosjekt" i innstillinger og
 // migrasjonen for `project_shares` i `supabase/schema.sql`. E-posten er
 // alltid lagret med små bokstaver (se `addShare` i ControlPanel.tsx).
@@ -79,6 +84,7 @@ export interface ShareRow {
   session_id: string;
   email: string;
   shared_by_email: string;
+  role: ShareRole;
   created_at: string;
 }
 

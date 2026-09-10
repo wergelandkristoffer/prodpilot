@@ -1,7 +1,7 @@
 "use client";
 
 import { RefObject, useEffect } from "react";
-import { SessionRow, ShareRow } from "@/lib/types";
+import { SessionRow, ShareRow, ShareRole } from "@/lib/types";
 
 function LinkRow({
   label,
@@ -69,12 +69,16 @@ export default function ProjectSettingsModal({
   onShowPdfExample,
   onDelete,
   isOwner,
+  canEdit,
   shares,
   newShareEmail,
   onNewShareEmailChange,
+  newShareRole,
+  onNewShareRoleChange,
   shareStatus,
   onAddShare,
   onRemoveShare,
+  onUpdateShareRole,
 }: {
   session: SessionRow;
   onClose: () => void;
@@ -113,12 +117,20 @@ export default function ProjectSettingsModal({
   onShowPdfExample: () => void;
   onDelete: () => void;
   isOwner: boolean;
+  // Egen tilgang på DETTE prosjektet: eier har alltid full tilgang, en
+  // delt bruker kun når rollen deres er "editor". Styrer om
+  // Navn/Visningsskjerm/Starttidspunkt/Import-eksport-panelene vises i
+  // det hele tatt — en "viewer" ser kun "Lenker" (kan dele dem videre).
+  canEdit: boolean;
   shares: ShareRow[];
   newShareEmail: string;
   onNewShareEmailChange: (v: string) => void;
+  newShareRole: ShareRole;
+  onNewShareRoleChange: (v: ShareRole) => void;
   shareStatus: string;
   onAddShare: () => void;
   onRemoveShare: (email: string) => void;
+  onUpdateShareRole: (email: string, role: ShareRole) => void;
 }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -149,6 +161,12 @@ export default function ProjectSettingsModal({
         </div>
 
         <div className="flex flex-col gap-4 p-5 overflow-y-auto">
+        {/* Navn, visningsskjerm, starttidspunkt og import/eksport er kun
+            for de som faktisk kan redigere programmet (eier + "editor"-
+            delte) — en "viewer"-delt bruker ser kun "Lenker" under, siden
+            de bare skal kunne se/starte programmet og dele lenker videre. */}
+        {canEdit && (
+        <>
         {/* Navn */}
         <div className="panel">
           <div className="ptitle">Navn</div>
@@ -268,8 +286,11 @@ export default function ProjectSettingsModal({
             </div>
           )}
         </div>
+        </>
+        )}
 
-        {/* Lenker */}
+        {/* Lenker — synlig uansett rolle, også for en "viewer"-delt
+            bruker, siden de nettopp SKAL kunne se og dele lenkene videre. */}
         <div className="panel">
           <div className="ptitle">Lenker</div>
           <LinkRow
@@ -288,7 +309,9 @@ export default function ProjectSettingsModal({
           />
         </div>
 
-        {/* Import / eksport */}
+        {/* Import / eksport — samme regel som Navn/Visningsskjerm/
+            Starttidspunkt over: kun for de som faktisk kan redigere. */}
+        {canEdit && (
         <div className="panel">
           <div className="ptitle">Importer / eksporter program</div>
           <div
@@ -370,37 +393,59 @@ export default function ProjectSettingsModal({
             />
           </div>
         </div>
+        )}
 
-        {/* Del prosjekt — kun eieren kan dele/fjerne tilgang. Alle som er
-            delt med kan redigere programmet akkurat som eieren, men kan
-            ikke slette selve prosjektet (se "Farlig sone" under). */}
+        {/* Del prosjekt — kun eieren kan dele/fjerne tilgang eller endre
+            tilgangsnivå. Hver deling har et eget nivå: "Kan redigere" (som
+            eieren — legge til/endre/flytte/slette punkter og bolker) eller
+            "Kan kun se" (se programmet, starte/styre avspilling og dele
+            lenker videre, men ikke røre selve programmet) — uansett nivå
+            kan de ALDRI slette selve prosjektet, se "Farlig sone" under. */}
         {isOwner && (
           <div className="panel">
             <div className="ptitle">Del prosjekt</div>
             <p className="text-[10px] text-[#7d7d7d] leading-relaxed">
-              Gi noen redigeringstilgang til dette prosjektet med
-              e-postadressen de logger inn med. De finner det da automatisk
-              blant sine egne prosjekter, merket «Delt av deg».
+              Gi noen tilgang til dette prosjektet med e-postadressen de
+              logger inn med. De finner det da automatisk blant sine egne
+              prosjekter, merket «Delt av deg», og får et varsel på e-post.
             </p>
-            <div className="flex gap-1.5">
+            <div className="flex flex-col gap-1.5">
               <input
-                className="input text-xs flex-1"
+                className="input text-xs"
                 type="email"
                 placeholder="e-post@eksempel.no"
                 value={newShareEmail}
                 onChange={(e) => onNewShareEmailChange(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && onAddShare()}
               />
-              <button className="btn sm" onClick={onAddShare}>
-                Del
-              </button>
+              <div className="flex gap-1.5">
+                <select
+                  className="input text-xs flex-1"
+                  value={newShareRole}
+                  onChange={(e) => onNewShareRoleChange(e.target.value as ShareRole)}
+                >
+                  <option value="editor">Kan redigere</option>
+                  <option value="viewer">Kan kun se og starte</option>
+                </select>
+                <button className="btn sm flex-shrink-0" onClick={onAddShare}>
+                  Del
+                </button>
+              </div>
             </div>
             {shareStatus && <div className="text-[10px] text-[#f87171]">{shareStatus}</div>}
             {shares.length > 0 && (
-              <div className="flex flex-col gap-1 mt-1">
+              <div className="flex flex-col gap-1.5 mt-1">
                 {shares.map((s) => (
-                  <div key={s.email} className="flex items-center justify-between gap-2">
-                    <span className="text-xs text-[#ccc] truncate">{s.email}</span>
+                  <div key={s.email} className="flex items-center justify-between gap-1.5">
+                    <span className="text-xs text-[#ccc] truncate flex-1 min-w-0">{s.email}</span>
+                    <select
+                      className="input text-[10px] !py-1 flex-shrink-0 w-[132px]"
+                      value={s.role}
+                      onChange={(e) => onUpdateShareRole(s.email, e.target.value as ShareRole)}
+                    >
+                      <option value="editor">Kan redigere</option>
+                      <option value="viewer">Kan kun se</option>
+                    </select>
                     <button className="btn xs red flex-shrink-0" onClick={() => onRemoveShare(s.email)}>
                       Fjern
                     </button>

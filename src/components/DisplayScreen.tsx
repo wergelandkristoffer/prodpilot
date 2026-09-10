@@ -105,9 +105,12 @@ export default function DisplayScreen({ sessionId }: { sessionId: string }) {
     });
   }, [agenda, session]);
 
+  // Henter ALLE gjenværende punkter (ikke bare de 3 første) — listen viser
+  // uansett kun ca. 3 rader om gangen (fast makshøyde, se rendering under),
+  // men man skal kunne bla videre nedover for å se resten.
   const upcoming = useMemo(() => {
     const out: { item: AgendaItemRow; clock: string; plannedMs: number | null }[] = [];
-    for (let i = activeIdx + 1; i < agenda.length && out.length < 3; i++) {
+    for (let i = activeIdx + 1; i < agenda.length; i++) {
       if (!agenda[i].is_section)
         out.push({ item: agenda[i], clock: fmtClock(scheduledTimes[i]), plannedMs: scheduledTimes[i] });
     }
@@ -216,10 +219,19 @@ export default function DisplayScreen({ sessionId }: { sessionId: string }) {
             Neste på programmet
           </span>
 
-          {/* MOBIL: vertikal liste (samme mønster som "Programoversikt" i
-              fjernkontrollen) i stedet for tre kolonner som overlapper
-              hverandre på smale skjermer. */}
-          <div className="flex md:hidden flex-col gap-2 w-full max-w-sm px-2">
+          {/* Én og samme stablede, vertikale liste på alle skjermstørrelser
+              nå — samme mønster som "Programoversikt" i fjernkontrollen/
+              kontrollpanelet, i stedet for den tidligere tre-kolonners
+              rutenett-varianten på desktop. Boksen har en FAST makshøyde
+              tilsvarende ca. 3 rader (`h-16`/`gap-2.5` under, matchet i
+              maks-høyden) — flere enn 3 kommende punkter blir dermed
+              tilgjengelige ved å bla NEDOVER inni boksen selv
+              (`overflow-y-auto`), i stedet for at alt vises på én gang.
+              Ren visning — ingen klikk her, kun på selve kontrollpanelet. */}
+          <div
+            className="flex flex-col gap-2.5 w-full max-w-sm md:max-w-lg px-2 overflow-y-auto"
+            style={{ maxHeight: "calc(3 * 4rem + 2 * 0.625rem)" }}
+          >
             {upcoming.map(({ item, clock, plannedMs }, i) => {
               const driftSecs = hasActive ? liveStatus : 0;
               const newMs = plannedMs != null ? plannedMs + driftSecs * 1000 : null;
@@ -229,23 +241,23 @@ export default function DisplayScreen({ sessionId }: { sessionId: string }) {
               return (
                 <div
                   key={item.id}
-                  className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 opacity-80"
+                  className="flex items-center gap-3 rounded-lg border border-white/10 bg-white/5 px-4 h-16 flex-shrink-0 opacity-80"
                 >
-                  <span className="text-[10px] text-white/40 font-mono w-3 flex-shrink-0 text-center">
+                  <span className="text-xs md:text-sm text-white/40 font-mono w-4 flex-shrink-0 text-center">
                     {i + 1}
                   </span>
                   <span
-                    className="w-2 h-2 rounded-full flex-shrink-0"
+                    className="w-2.5 h-2.5 rounded-full flex-shrink-0"
                     style={{ background: item.color }}
                   />
-                  <span className="text-sm font-medium truncate flex-1 min-w-0">{item.name}</span>
+                  <span className="text-sm md:text-lg font-medium truncate flex-1 min-w-0">{item.name}</span>
                   <span className="flex flex-col items-end gap-0.5 flex-shrink-0">
                     {clock && (
-                      <span className="text-[10px] text-white/40 font-mono">Kl. {clock}</span>
+                      <span className="text-[10px] md:text-xs text-white/40 font-mono">Kl. {clock}</span>
                     )}
                     {showNewClock && (
                       <span
-                        className={`text-[10px] font-mono rounded px-1 ${
+                        className={`text-[10px] md:text-xs font-mono rounded px-1 ${
                           isLate ? "text-[#f87171]" : "text-[#4ade80]"
                         }`}
                       >
@@ -253,63 +265,9 @@ export default function DisplayScreen({ sessionId }: { sessionId: string }) {
                         <span className="font-bold">{newClock}</span>
                       </span>
                     )}
-                    <span className="text-[9px] text-white/30 font-mono">{fmtDuration(item.duration_secs)}</span>
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* DESKTOP: CSS Grid med tre LIKE brede kolonner (ikke flex) — slik
-              havner midtre punkt alltid midt på skjermen, uansett hvor lang
-              tekst nabo-punktene har. Ubrukte kolonner (færre enn 3 kommende
-              punkter) står bare tomme. Tid/Ny tid står nå OVER navnet, og
-              varigheten UNDER — i stedet for at alt lå under navnet. */}
-          <div className="hidden md:grid grid-cols-3 gap-4 md:gap-8 w-full max-w-4xl">
-            {[0, 1, 2].map((i) => {
-              const entry = upcoming[i];
-              if (!entry) return <div key={i} />;
-              const { item, clock, plannedMs } = entry;
-              // "Ny tid" justerer det opprinnelig planlagte tidspunktet med
-              // nøyaktig samme avvik som Status-pillen viser akkurat nå —
-              // altså hvor punktet faktisk ser ut til å starte hvis avviket
-              // holder seg. "Kl." er alltid den opprinnelige planen, uendret.
-              const driftSecs = hasActive ? liveStatus : 0;
-              const newMs = plannedMs != null ? plannedMs + driftSecs * 1000 : null;
-              const newClock = newMs != null ? fmtClock(newMs) : "";
-              const showNewClock = !!clock && !!newClock && newClock !== clock;
-              // Rødt når "Ny tid" er SENERE enn planen (forsinket), grønt
-              // når vi er på eller foran planen.
-              const isLate = driftSecs > 0;
-              return (
-                <div key={item.id} className="flex flex-col items-center gap-1 opacity-70">
-                  <span className="text-[10px] text-white/40 font-mono">{i + 1}</span>
-                  <span
-                    className="w-2 h-2 rounded-full"
-                    style={{ background: item.color }}
-                  />
-                  {clock && (
-                    <div className="flex items-center gap-1.5 mt-0.5">
-                      <span className="text-xs md:text-sm text-white/40 font-mono">Kl. {clock}</span>
-                      {showNewClock && (
-                        <span
-                          className={`text-[10px] md:text-xs font-mono rounded px-1.5 py-0.5 border ${
-                            isLate
-                              ? "text-[#f87171] bg-[#2a0a0a] border-[#4a1515]"
-                              : "text-[#4ade80] bg-[#0a1f0a] border-[#1a4a2a]"
-                          }`}
-                        >
-                          <span className="font-normal opacity-80">Ny tid </span>
-                          <span className="font-bold">{newClock}</span>
-                        </span>
-                      )}
-                    </div>
-                  )}
-                  <span className="text-base md:text-xl font-medium text-center max-w-[220px] truncate">
-                    {item.name}
-                  </span>
-                  <span className="text-[10px] md:text-xs text-white/40 font-mono">
-                    {fmtDuration(item.duration_secs)}
+                    <span className="text-[9px] md:text-[10px] text-white/30 font-mono">
+                      {fmtDuration(item.duration_secs)}
+                    </span>
                   </span>
                 </div>
               );
@@ -321,10 +279,12 @@ export default function DisplayScreen({ sessionId }: { sessionId: string }) {
 
       {/* Meldingen er nå en egen rad i selve layouten (ikke lenger
           `position: fixed`) — den får dermed alltid sin egen plass i stedet
-          for å kunne havne oppå innholdet over. */}
+          for å kunne havne oppå innholdet over. Gjort tydelig større/mer
+          lesbar (mer luft, større skrift) enn før — den var fortsatt litt
+          lav/beskjeden til å bli sett fra avstand. */}
       {session.message && (
-        <div className="flex-shrink-0 flex items-center justify-center px-6 pb-6 pt-2 sm:px-10">
-          <div className="bg-[#fde68a] text-[#3a2a00] font-semibold text-base md:text-2xl px-6 md:px-8 py-3 md:py-5 rounded-full shadow-2xl max-w-[90vw] text-center">
+        <div className="flex-shrink-0 flex items-center justify-center px-6 pb-8 pt-3 sm:px-10">
+          <div className="bg-[#fde68a] text-[#3a2a00] font-semibold text-xl md:text-4xl px-8 md:px-12 py-4 md:py-7 rounded-full shadow-2xl max-w-[90vw] text-center">
             {session.message}
           </div>
         </div>

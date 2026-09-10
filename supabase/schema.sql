@@ -336,3 +336,76 @@ create policy "agenda_items delete own" on agenda_items
 -- bevisst eier-only (uendret over): en som har fått prosjektet delt med seg
 -- kan redigere og "forlate" delingen (se project_shares delete-policyen),
 -- men aldri slette selve prosjektet.
+
+-- ─────────────────────────────────────────────────────────────
+-- DEL-TILGANGSNIVÅ-MIGRASJON (2026-09-10) — "kan redigere" vs. "kan kun se"
+-- Trygt å kjøre på nytt.
+--
+-- Legger til et tilgangsnivå PR. DELING: "editor" (kan redigere programmet
+-- akkurat som før) eller "viewer" (kan kun se programmet, starte/styre
+-- avspilling og dele lenker videre — men IKKE legge til/endre/flytte/slette
+-- punkter og bolker). Eksisterende delinger fra forrige runde behandles som
+-- "editor" (uendret oppførsel for dem). Selve avspillings-styringen
+-- (start/pause/neste/melding, alt som skjer via sessions-UPDATE) er og
+-- forblir åpen for alle med lenken uansett rolle — se AUTH-MIGRASJON-
+-- blokken over — så "viewer" trenger ingen egen sessions-policy for å
+-- kunne starte programmet, kun en INNSTRAMMING på agenda_items.
+-- ─────────────────────────────────────────────────────────────
+
+alter table project_shares add column if not exists role text not null default 'editor';
+
+alter table project_shares drop constraint if exists project_shares_role_chk;
+alter table project_shares add constraint project_shares_role_chk
+  check (role in ('editor', 'viewer'));
+
+-- agenda_items insert/update/delete strammes inn: delt tilgang gir nå kun
+-- rett til å skrive til agenda_items når delingen faktisk har rollen
+-- "editor" — en "viewer" kan fortsatt LESE alt (agenda_items select er og
+-- forblir åpent) og styre avspilling (sessions-update, uendret), men ikke
+-- skrive til selve programmet.
+drop policy if exists "agenda_items insert own" on agenda_items;
+create policy "agenda_items insert own" on agenda_items
+  for insert with check (
+    session_id in (select id from sessions where owner_id = auth.uid())
+    or session_id in (
+      select session_id from project_shares
+      where lower(email) = lower(coalesce(auth.jwt() ->> 'email', ''))
+        and role = 'editor'
+    )
+  );
+
+drop policy if exists "agenda_items update own" on agenda_items;
+create policy "agenda_items update own" on agenda_items
+  for update using (
+    session_id in (select id from sessions where owner_id = auth.uid())
+    or session_id in (
+      select session_id from project_shares
+      where lower(email) = lower(coalesce(auth.jwt() ->> 'email', ''))
+        and role = 'editor'
+    )
+  );
+
+drop policy if exists "agenda_items delete own" on agenda_items;
+create policy "agenda_items delete own" on agenda_items
+  for delete using (
+    session_id in (select id from sessions where owner_id = auth.uid())
+    or session_id in (
+      select session_id from project_shares
+      where lower(email) = lower(coalesce(auth.jwt() ->> 'email', ''))
+        and role = 'editor'
+    )
+  );
+
+-- Eieren må kunne ENDRE rollen på en eksisterende deling (bytte mellom
+-- "kan redigere"/"kan kun se") — dekket av UPDATE, som project_shares
+-- ikke hadde noen policy for fra før (kun insert/select/delete).
+drop policy if exists "project_shares update own" on project_shares;
+create policy "project_shares update own" on project_shares
+  for update using (
+    session_id in (select id from sessions where owner_id = auth.uid())
+  )
+  with check (
+    session_id in (select id from sessions where owner_id = auth.uid())
+  );
+
+grant update on public.project_shares to anon, authenticated;
