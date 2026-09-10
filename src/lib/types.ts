@@ -72,6 +72,16 @@ export interface AgendaSnapshotItem {
   color?: string;
 }
 
+// En delt tilgang til et prosjekt — se "Del prosjekt" i innstillinger og
+// migrasjonen for `project_shares` i `supabase/schema.sql`. E-posten er
+// alltid lagret med små bokstaver (se `addShare` i ControlPanel.tsx).
+export interface ShareRow {
+  session_id: string;
+  email: string;
+  shared_by_email: string;
+  created_at: string;
+}
+
 export interface ProgramRow {
   id: string;
   name: string;

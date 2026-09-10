@@ -1,7 +1,7 @@
 "use client";
 
 import { RefObject, useEffect } from "react";
-import { SessionRow } from "@/lib/types";
+import { SessionRow, ShareRow } from "@/lib/types";
 
 function LinkRow({
   label,
@@ -68,6 +68,13 @@ export default function ProjectSettingsModal({
   onPdfFile,
   onShowPdfExample,
   onDelete,
+  isOwner,
+  shares,
+  newShareEmail,
+  onNewShareEmailChange,
+  shareStatus,
+  onAddShare,
+  onRemoveShare,
 }: {
   session: SessionRow;
   onClose: () => void;
@@ -105,6 +112,13 @@ export default function ProjectSettingsModal({
   onPdfFile: (file: File) => void;
   onShowPdfExample: () => void;
   onDelete: () => void;
+  isOwner: boolean;
+  shares: ShareRow[];
+  newShareEmail: string;
+  onNewShareEmailChange: (v: string) => void;
+  shareStatus: string;
+  onAddShare: () => void;
+  onRemoveShare: (email: string) => void;
 }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -357,13 +371,55 @@ export default function ProjectSettingsModal({
           </div>
         </div>
 
-        {/* Farlig sone */}
-        <div className="panel">
-          <div className="ptitle">Farlig sone</div>
-          <button className="btn red sm w-fit" onClick={onDelete}>
-            Slett prosjekt
-          </button>
-        </div>
+        {/* Del prosjekt — kun eieren kan dele/fjerne tilgang. Alle som er
+            delt med kan redigere programmet akkurat som eieren, men kan
+            ikke slette selve prosjektet (se "Farlig sone" under). */}
+        {isOwner && (
+          <div className="panel">
+            <div className="ptitle">Del prosjekt</div>
+            <p className="text-[10px] text-[#7d7d7d] leading-relaxed">
+              Gi noen redigeringstilgang til dette prosjektet med
+              e-postadressen de logger inn med. De finner det da automatisk
+              blant sine egne prosjekter, merket «Delt av deg».
+            </p>
+            <div className="flex gap-1.5">
+              <input
+                className="input text-xs flex-1"
+                type="email"
+                placeholder="e-post@eksempel.no"
+                value={newShareEmail}
+                onChange={(e) => onNewShareEmailChange(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && onAddShare()}
+              />
+              <button className="btn sm" onClick={onAddShare}>
+                Del
+              </button>
+            </div>
+            {shareStatus && <div className="text-[10px] text-[#f87171]">{shareStatus}</div>}
+            {shares.length > 0 && (
+              <div className="flex flex-col gap-1 mt-1">
+                {shares.map((s) => (
+                  <div key={s.email} className="flex items-center justify-between gap-2">
+                    <span className="text-xs text-[#ccc] truncate">{s.email}</span>
+                    <button className="btn xs red flex-shrink-0" onClick={() => onRemoveShare(s.email)}>
+                      Fjern
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Farlig sone — kun eieren kan slette prosjektet. */}
+        {isOwner && (
+          <div className="panel">
+            <div className="ptitle">Farlig sone</div>
+            <button className="btn red sm w-fit" onClick={onDelete}>
+              Slett prosjekt
+            </button>
+          </div>
+        )}
         </div>
       </div>
     </div>

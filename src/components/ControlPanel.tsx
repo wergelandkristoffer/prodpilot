@@ -1,13 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useRouter } from "next/navigation";
 import * as XLSX from "xlsx";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase";
 import SupabaseSetupNotice from "@/components/SupabaseSetupNotice";
 import ProjectSidebar, { ProjectOption } from "@/components/ProjectSidebar";
 import ProjectSettingsModal from "@/components/ProjectSettingsModal";
-import { COLORS, SessionRow } from "@/lib/types";
+import { COLORS, SessionRow, ShareRow } from "@/lib/types";
 import { fmt, fmtClock, fmtDuration, calcRemaining } from "@/lib/timer";
 import { useLiveRemaining } from "@/hooks/useLiveRemaining";
 
@@ -66,6 +66,14 @@ function insertAfterSection(
     }
   }
   return [...list.slice(0, endIdx), item, ...list.slice(endIdx)];
+}
+
+/** Setter inn et nytt punkt/bolk rett ETTER en bestemt indeks i listen —
+ * brukt av "+"-knappen som vises under hver rad i "Rediger program", til
+ * forskjell fra `insertAfterSection` (som setter inn sist i en valgt bolk). */
+function insertAtIndex(list: LocalItem[], afterIdx: number, item: LocalItem): LocalItem[] {
+  const idx = Math.max(-1, Math.min(afterIdx, list.length - 1));
+  return [...list.slice(0, idx + 1), item, ...list.slice(idx + 1)];
 }
 
 /** Enkelt pause-ikon (to strek) — bevisst IKKE emoji, siden emoji-tegnet ⏸
@@ -170,6 +178,12 @@ export default function ControlPanel({
   const [newSectionColor, setNewSectionColor] = useState(COLORS[0]);
   const [addItemOpen, setAddItemOpen] = useState(false);
   const [newItemSectionKey, setNewItemSectionKey] = useState("");
+  // Når et nytt punkt/bolk legges til via "+"-knappen RETT UNDER en
+  // bestemt rad i "Rediger program" (i stedet for via de generelle
+  // "+ Legg til punkt/bolk"-knappene), husker denne HVOR i listen det skal
+  // settes inn — se `openAddItemAt`/`openAddSectionAt`. `null` betyr
+  // "vanlig oppførsel" (på slutten, eller styrt av bolk-nedtrekket).
+  const [insertAfterIdx, setInsertAfterIdx] = useState<number | null>(null);
   const [editMode, setEditMode] = useState(false);
   const [linkMenuOpen, setLinkMenuOpen] = useState<"display" | "remote" | null>(null);
   // Egen, i appens stil, bekreftelses-dialog i stedet for nettleserens
@@ -183,6 +197,20 @@ export default function ControlPanel({
     onConfirm: () => void;
     onCancel?: () => void;
   } | null>(null);
+
+  // ── DEL PROSJEKT ─────────────────────────────────────────────
+  // Hvem det gjeldende prosjektet er delt med (kun relevant/lastet inn når
+  // man selv eier prosjektet — se effekten som kaller `refreshShares`).
+  const [shares, setShares] = useState<ShareRow[]>([]);
+  const [newShareEmail, setNewShareEmail] = useState("");
+  const [shareStatus, setShareStatus] = useState("");
+  const isOwner = !!session && session.owner_id === userId;
+
+  // Husker hvilke agenda_items-id-er som (så vidt vi vet) faktisk ligger i
+  // databasen akkurat nå — brukes av `syncAgenda` til å slette KUN rader
+  // som faktisk er fjernet, i stedet for å slette ALT og sette alt inn på
+  // nytt ved hver eneste endring (se forklaring ved `syncAgenda`).
+  const lastSyncedKeysRef = useRef<Set<string>>(new Set());
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   // Egen fil-input for import/eksport-boksen i "Rediger program"-visningen
@@ -231,38 +259,138 @@ export default function ControlPanel({
       // Filtrerer bort ev. korrupte/tomme rader (f.eks. fra en gammel,
       // avbrutt skriving) i stedet for å la dem krasje resten av siden —
       // en rad uten id/navn er ikke brukbar uansett.
+      const rows = data.filter((it): it is NonNullable<typeof it> => !!it && !!it.id);
       setAgenda(
-        data
-          .filter((it): it is NonNullable<typeof it> => !!it && !!it.id)
-          .map((it) => ({
-            key: it.id,
-            is_section: it.is_section === true,
-            name: it.name ?? "",
-            duration_secs: it.duration_secs ?? 0,
-            note: it.note ?? "",
-            color: it.color ?? COLORS[0],
-          }))
+        rows.map((it) => ({
+          key: it.id,
+          is_section: it.is_section === true,
+          name: it.name ?? "",
+          duration_secs: it.duration_secs ?? 0,
+          note: it.note ?? "",
+          color: it.color ?? COLORS[0],
+        }))
       );
+      // Speiler hva som faktisk ligger i databasen nå — enten fordi VI nettopp
+      // skrev det (se `syncAgenda`), eller fordi en annen som har prosjektet
+      // delt med seg (se Del-prosjekt) endret det via sanntids-oppdateringen.
+      lastSyncedKeysRef.current = new Set(rows.map((it) => it.id as string));
     }
   }, []);
 
   // ── PROSJEKTLISTE (venstremeny) ────────────────────────────────
-  // Filtrert på `owner_id` — hver innlogget bruker skal kun se sine EGNE
-  // prosjekter her. Merk at dette IKKE er det som egentlig håndhever
-  // eierskap (det gjør RLS-policyene i `schema.sql`) — dette er bare
-  // hvilke rader appen faktisk ber om.
+  // To kilder slås sammen: prosjekter man selv EIER (filtrert på
+  // `owner_id`, som før), OG prosjekter som er DELT med ens egen
+  // e-postadresse (via `project_shares` — se "Del prosjekt" i
+  // innstillinger). Merk at dette IKKE er det som egentlig håndhever
+  // tilgang (det gjør RLS-policyene i `schema.sql`) — dette er bare hvilke
+  // rader appen faktisk ber om og viser i lista.
   const refreshProjects = useCallback(async () => {
-    const { data } = await supabase
-      .from("sessions")
-      .select("id,name,updated_at")
-      .eq("owner_id", userId)
-      .order("updated_at", { ascending: false });
-    if (data) setProjects(data as ProjectOption[]);
-  }, [userId]);
+    const [{ data: owned }, { data: sharedRows }] = await Promise.all([
+      supabase
+        .from("sessions")
+        .select("id,name,updated_at")
+        .eq("owner_id", userId)
+        .order("updated_at", { ascending: false }),
+      supabase
+        .from("project_shares")
+        .select("session_id,shared_by_email")
+        .eq("email", userEmail.toLowerCase()),
+    ]);
+
+    const ownedList: ProjectOption[] = (owned ?? []).map((p) => ({
+      ...p,
+      isShared: false,
+    }));
+
+    let sharedList: ProjectOption[] = [];
+    if (sharedRows && sharedRows.length > 0) {
+      const ids = sharedRows.map((r) => r.session_id);
+      const { data: sharedSessions } = await supabase
+        .from("sessions")
+        .select("id,name,updated_at")
+        .in("id", ids);
+      const ownerEmailBySession = new Map(sharedRows.map((r) => [r.session_id, r.shared_by_email]));
+      sharedList = (sharedSessions ?? []).map((p) => ({
+        ...p,
+        isShared: true,
+        ownerEmail: ownerEmailBySession.get(p.id) || "",
+      }));
+    }
+
+    setProjects(
+      [...ownedList, ...sharedList].sort(
+        (a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+      )
+    );
+  }, [userId, userEmail]);
 
   useEffect(() => {
     refreshProjects();
   }, [refreshProjects]);
+
+  // Delingene på det ÅPNE prosjektet (kun meningsfullt når man selv eier
+  // det — ellers vises ikke "Del prosjekt"-panelet i det hele tatt, se
+  // ProjectSettingsModal). Hentes på nytt hver gang innstillinger åpnes.
+  const refreshShares = useCallback(async () => {
+    if (!sessionId) return;
+    const { data } = await supabase
+      .from("project_shares")
+      .select("*")
+      .eq("session_id", sessionId)
+      .order("created_at", { ascending: true });
+    if (data) setShares(data as ShareRow[]);
+  }, [sessionId]);
+
+  useEffect(() => {
+    if (!settingsOpen || !isOwner) {
+      setShares([]);
+      return;
+    }
+    refreshShares();
+  }, [settingsOpen, isOwner, refreshShares]);
+
+  const addShare = useCallback(async () => {
+    if (!sessionId) return;
+    const email = newShareEmail.trim().toLowerCase();
+    if (!email || !email.includes("@")) {
+      setShareStatus("Skriv inn en gyldig e-postadresse.");
+      return;
+    }
+    if (email === userEmail.toLowerCase()) {
+      setShareStatus("Du eier allerede dette prosjektet.");
+      return;
+    }
+    const { error } = await supabase
+      .from("project_shares")
+      .insert({ session_id: sessionId, email, shared_by_email: userEmail });
+    if (error) {
+      setShareStatus(
+        error.code === "23505" ? "Allerede delt med denne e-posten." : "Kunne ikke dele prosjektet."
+      );
+      console.error("Kunne ikke dele prosjekt:", error);
+      return;
+    }
+    setNewShareEmail("");
+    setShareStatus("");
+    refreshShares();
+  }, [sessionId, newShareEmail, userEmail, refreshShares]);
+
+  const removeShare = useCallback(
+    async (email: string) => {
+      if (!sessionId) return;
+      const { error } = await supabase
+        .from("project_shares")
+        .delete()
+        .eq("session_id", sessionId)
+        .eq("email", email);
+      if (error) {
+        console.error("Kunne ikke fjerne deling:", error);
+        return;
+      }
+      refreshShares();
+    },
+    [sessionId, refreshShares]
+  );
 
   // Rydder bort tomme test-prosjekter (standardnavn, ingen agenda-punkter) som
   // gjerne har hopet seg opp under testing. Rører ALDRI det prosjektet som er
@@ -375,6 +503,17 @@ export default function ControlPanel({
   // ── REALTIME-ABONNEMENT ──────────────────────────────────────
   useEffect(() => {
     if (!sessionId) return;
+    // Postgres sender én sanntids-hendelse PR. RAD som endres, ikke én pr.
+    // handling — å flytte ett punkt i en liste på 10 kan altså utløse et
+    // dusin hendelser på et øyeblikk (særlig nå som flere kan redigere
+    // samme prosjekt samtidig, se Del-prosjekt). Uten debounce ville hver
+    // eneste av dem trigget sin egen `fetchAgenda()`; her samler vi dem i
+    // stedet til ÉN oppfrisking kort tid etter siste hendelse.
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+    const debouncedFetchAgenda = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => fetchAgenda(sessionId), 200);
+    };
     const channel = supabase
       .channel(`session-${sessionId}`)
       .on(
@@ -399,11 +538,12 @@ export default function ControlPanel({
           table: "agenda_items",
           filter: `session_id=eq.${sessionId}`,
         },
-        () => fetchAgenda(sessionId)
+        debouncedFetchAgenda
       )
       .subscribe();
 
     return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
       supabase.removeChannel(channel);
     };
   }, [sessionId, fetchAgenda]);
@@ -428,10 +568,35 @@ export default function ControlPanel({
 
   // Kjeder alle skrivinger til agenda_items etter hverandre (i stedet for å la
   // dem løpe parallelt). Uten dette kunne rask klikking på ↑/↓/slett føre til at
-  // to delete+insert-kall overlappet — det andre kallets insert kunne da havne
-  // OPPÅ det første sitt (siden begge slettet "alt" før noen rakk å sette inn
-  // igjen), som ga dupliserte rader og en krasjende visning. Feil fanges nå
-  // også opp i stedet for å ende som en uhåndtert løftefeil.
+  // to skrive-kall overlappet og kom i utakt med hverandre. Feil fanges nå også
+  // opp i stedet for å ende som en uhåndtert løftefeil.
+  //
+  // VIKTIG (rettet i denne runden): dette gjorde TIDLIGERE en full
+  // slett-ALT-og-sett-inn-ALT-på-nytt ved HVER ENESTE endring (flytt opp/ned,
+  // rediger ett felt, osv.) — det ga to reelle problemer: (1) Supabase sitt
+  // sanntids-abonnement fikk dermed N slette-hendelser + N sette-inn-
+  // hendelser for én eneste flytting, og hver av dem trigget en full
+  // `fetchAgenda()`. Midt i den sekvensen var `agenda_items`-tabellen
+  // kortvarig TOM, og siden alle radene fikk NYE, server-genererte id-er ved
+  // gjeninnsettingen, matchet ikke de nye radenes React-"key" de gamle —
+  // React måtte da rive ned og bygge opp hele listen på nytt, og
+  // nettleseren nullstiller scrollTop når innholdet den viser blir borte.
+  // Det var den egentlige årsaken til at programlisten "hoppet til toppen"
+  // hver gang man flyttet et punkt opp/ned. (2) En fullstendig slett-alt
+  // er dessuten farlig nå som prosjekter kan DELES (se Del-prosjekt) — hvis
+  // to personer redigerer samtidig kunne den ene sin slett-alt-operasjon
+  // kortvarig fjerne den andres rader.
+  //
+  // Løsningen: hver rad har alltid en STABIL id (`item.key` — enten satt av
+  // Supabase ved første lagring, eller generert lokalt med `crypto.
+  // randomUUID()` med det samme et nytt punkt/bolk opprettes, se `newKey()`).
+  // Vi sender nå den samme id-en eksplisitt til Supabase og bruker `upsert`
+  // (sett inn ELLER oppdater på plass) i stedet for slett+sett-inn, og
+  // sletter kun de radene som faktisk er borte fra den nye listen
+  // (sammenlignet med `lastSyncedKeysRef`, se der). Dermed forblir id-ene —
+  // og dermed React sine "key"-verdier — stabile gjennom en omrokkering,
+  // React gjenbruker de samme DOM-radene i stedet for å bygge dem på nytt,
+  // og scrollposisjonen forstyrres ikke lenger.
   const syncChainRef = useRef<Promise<void>>(Promise.resolve());
   const syncAgenda = useCallback(
     (list: LocalItem[]) => {
@@ -439,9 +604,15 @@ export default function ControlPanel({
       if (!sessionId) return syncChainRef.current;
       const run = async () => {
         try {
-          await supabase.from("agenda_items").delete().eq("session_id", sessionId);
+          const keepIds = new Set(list.map((it) => it.key));
+          const toDelete = [...lastSyncedKeysRef.current].filter((id) => !keepIds.has(id));
+          if (toDelete.length > 0) {
+            const { error } = await supabase.from("agenda_items").delete().in("id", toDelete);
+            if (error) console.error("Kunne ikke slette fjernede punkter:", error);
+          }
           if (list.length > 0) {
             const rows = list.map((it, i) => ({
+              id: it.key,
               session_id: sessionId,
               position: i,
               is_section: it.is_section,
@@ -450,9 +621,10 @@ export default function ControlPanel({
               note: it.note,
               color: it.color,
             }));
-            const { error } = await supabase.from("agenda_items").insert(rows);
+            const { error } = await supabase.from("agenda_items").upsert(rows, { onConflict: "id" });
             if (error) console.error("Kunne ikke lagre agenda:", error);
           }
+          lastSyncedKeysRef.current = keepIds;
         } catch (err) {
           console.error("Feil ved lagring av agenda:", err);
         }
@@ -706,14 +878,23 @@ export default function ControlPanel({
       note: newNote.trim(),
       color: selColor,
     };
-    syncAgenda(insertAfterSection(agenda, newItemSectionKey, item));
+    // `insertAfterIdx` er satt når popupen ble åpnet via "+"-knappen under
+    // en bestemt rad (se `openAddItemAt`) — da vinner den over det vanlige
+    // bolk-nedtrekket, siden brukeren allerede har pekt nøyaktig hvor det
+    // nye punktet skal havne.
+    syncAgenda(
+      insertAfterIdx !== null
+        ? insertAtIndex(agenda, insertAfterIdx, item)
+        : insertAfterSection(agenda, newItemSectionKey, item)
+    );
     setNewName("");
     setNewMin("");
     setNewSec("");
     setNewNote("");
     setNewItemSectionKey("");
+    setInsertAfterIdx(null);
     setAddItemOpen(false);
-  }, [agenda, newName, newMin, newSec, newNote, selColor, newItemSectionKey, syncAgenda]);
+  }, [agenda, newName, newMin, newSec, newNote, selColor, newItemSectionKey, insertAfterIdx, syncAgenda]);
 
   const closeAddItem = useCallback(() => {
     setAddItemOpen(false);
@@ -722,17 +903,47 @@ export default function ControlPanel({
     setNewSec("");
     setNewNote("");
     setNewItemSectionKey("");
+    setInsertAfterIdx(null);
+  }, []);
+
+  /** Åpner "Nytt punkt"-popupen forhåndsinnstilt til å sette punktet rett
+   * under rad `i` — brukt av "+ Punkt"-knappen som vises under hver rad i
+   * "Rediger program". */
+  const openAddItemAt = useCallback((i: number) => {
+    setInsertAfterIdx(i);
+    setNewItemSectionKey("");
+    setAddItemOpen(true);
   }, []);
 
   const addSection = useCallback(() => {
     const name = newSectionName.trim() || "Ny bolk";
-    syncAgenda([
-      ...agenda,
-      { key: newKey(), is_section: true, name, duration_secs: 0, note: "", color: newSectionColor },
-    ]);
+    const item: LocalItem = {
+      key: newKey(),
+      is_section: true,
+      name,
+      duration_secs: 0,
+      note: "",
+      color: newSectionColor,
+    };
+    syncAgenda(insertAfterIdx !== null ? insertAtIndex(agenda, insertAfterIdx, item) : [...agenda, item]);
+    setInsertAfterIdx(null);
     setNewSectionName("");
     setAddSectionOpen(false);
-  }, [agenda, newSectionName, newSectionColor, syncAgenda]);
+  }, [agenda, newSectionName, newSectionColor, insertAfterIdx, syncAgenda]);
+
+  const closeAddSection = useCallback(() => {
+    setAddSectionOpen(false);
+    setNewSectionName("");
+    setInsertAfterIdx(null);
+  }, []);
+
+  /** Åpner "Ny bolk"-popupen forhåndsinnstilt til å sette bolken rett under
+   * rad `i` — brukt av "+ Bolk"-knappen som vises under hver rad i
+   * "Rediger program". */
+  const openAddSectionAt = useCallback((i: number) => {
+    setInsertAfterIdx(i);
+    setAddSectionOpen(true);
+  }, []);
 
   const removeItem = useCallback(
     (i: number) => {
@@ -1409,7 +1620,7 @@ export default function ControlPanel({
   // rad i programoversikten.
   const agendaDriftSecs = activeIdx >= 0 && !agenda[activeIdx]?.is_section ? liveStatus : 0;
 
-  const renderAgendaList = (maxHeightClass: string) => (
+  const renderAgendaList = (maxHeightClass: string, editable: boolean = false) => (
     <>
       <div className="flex items-center">
         <span className="text-[10px] text-[#8a8a8a]">
@@ -1473,6 +1684,45 @@ export default function ControlPanel({
             <AgendaColGroup />
           <tbody>
             {(() => {
+              // For fade-effekten på ferdige bolker: finner, for hver
+              // bolk-rad (indeksert ved sin egen posisjon i listen),
+              // indeksen til det SISTE punktet som hører til den bolken
+              // (eller bolkens egen indeks hvis den ikke har noen punkter
+              // ennå) — en bolk regnes som "ferdig" når selv det siste
+              // punktet i den er passert.
+              const sectionLastItemIdx = new Map<number, number>();
+              {
+                let curSection: number | null = null;
+                agenda.forEach((it, idx) => {
+                  if (it.is_section) {
+                    curSection = idx;
+                    sectionLastItemIdx.set(idx, idx);
+                  } else if (curSection !== null) {
+                    sectionLastItemIdx.set(curSection, idx);
+                  }
+                });
+              }
+
+              // "+"-knappene under hver rad (kun i "Rediger program", styrt
+              // av `editable`) lar brukeren sette inn et nytt punkt/bolk
+              // RETT DER i listen, i stedet for alltid nederst — se
+              // `openAddItemAt`/`openAddSectionAt`/`insertAtIndex`.
+              const insertRow = (i: number) =>
+                editable && (
+                  <tr>
+                    <td colSpan={8} className="pb-1 pt-0.5">
+                      <div className="flex gap-1.5 justify-center">
+                        <button className="btn xs" onClick={() => openAddItemAt(i)}>
+                          + Punkt
+                        </button>
+                        <button className="btn xs" onClick={() => openAddSectionAt(i)}>
+                          + Bolk
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+
               // Følger fargen til den siste bolken vi passerte mens vi
               // går gjennom listen, slik at hvert punkt kan fargelegges
               // svakt etter BOLKEN det hører til (ikke punktets egen,
@@ -1482,41 +1732,47 @@ export default function ControlPanel({
               return agenda.map((item, i) => {
                 if (item.is_section) {
                   sectionColor = item.color;
+                  const isDone = activeIdx >= 0 && (sectionLastItemIdx.get(i) ?? i) < activeIdx;
                   return (
-                    <SectionRow
-                      key={item.key}
-                      item={item}
-                      i={i}
-                      moveUp={moveUp}
-                      moveDown={moveDown}
-                      openEdit={openEdit}
-                      removeItem={removeItem}
-                      timeLabel={fmtClock(scheduledTimes[i])}
-                      secLabel={itemSum(agenda, i)}
-                    />
+                    <Fragment key={item.key}>
+                      <SectionRow
+                        item={item}
+                        i={i}
+                        moveUp={moveUp}
+                        moveDown={moveDown}
+                        openEdit={openEdit}
+                        removeItem={removeItem}
+                        timeLabel={fmtClock(scheduledTimes[i])}
+                        secLabel={itemSum(agenda, i)}
+                        isDone={isDone}
+                      />
+                      {insertRow(i)}
+                    </Fragment>
                   );
                 }
                 const plannedMs = scheduledTimes[i];
                 const clock = fmtClock(plannedMs);
                 const newClock = plannedMs != null ? fmtClock(plannedMs + agendaDriftSecs * 1000) : "";
                 return (
-                  <AgendaRow
-                    key={item.key}
-                    item={item}
-                    i={i}
-                    num={agenda.slice(0, i + 1).filter((a) => !a.is_section).length}
-                    isActive={i === activeIdx}
-                    isDone={activeIdx >= 0 && i < activeIdx}
-                    clock={clock}
-                    newClock={newClock}
-                    isLate={agendaDriftSecs > 0}
-                    sectionColor={sectionColor}
-                    moveUp={moveUp}
-                    moveDown={moveDown}
-                    openEdit={openEdit}
-                    removeItem={removeItem}
-                    loadItem={loadItem}
-                  />
+                  <Fragment key={item.key}>
+                    <AgendaRow
+                      item={item}
+                      i={i}
+                      num={agenda.slice(0, i + 1).filter((a) => !a.is_section).length}
+                      isActive={i === activeIdx}
+                      isDone={activeIdx >= 0 && i < activeIdx}
+                      clock={clock}
+                      newClock={newClock}
+                      isLate={agendaDriftSecs > 0}
+                      sectionColor={sectionColor}
+                      moveUp={moveUp}
+                      moveDown={moveDown}
+                      openEdit={openEdit}
+                      removeItem={removeItem}
+                      loadItem={loadItem}
+                    />
+                    {insertRow(i)}
+                  </Fragment>
                 );
               });
             })()}
@@ -1755,7 +2011,7 @@ export default function ControlPanel({
 
       <div className="panel gap-3.5 lg:h-full lg:min-h-0">
         <div className="ptitle">Program</div>
-        {renderAgendaList("max-h-[75vh] lg:max-h-none lg:flex-1 lg:min-h-0")}
+        {renderAgendaList("max-h-[75vh] lg:max-h-none lg:flex-1 lg:min-h-0", true)}
       </div>
     </div>
   );
@@ -1990,7 +2246,7 @@ BOLK: Middag
       {addSectionOpen && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
-          onClick={() => setAddSectionOpen(false)}
+          onClick={closeAddSection}
         >
           <div
             className="w-full max-w-sm rounded-xl border border-[#2a2a2a] bg-[#111] p-5 flex flex-col gap-3"
@@ -2010,7 +2266,7 @@ BOLK: Middag
               <button className="btn purple flex-1" onClick={addSection}>
                 Legg til bolk
               </button>
-              <button className="btn flex-1" onClick={() => setAddSectionOpen(false)}>
+              <button className="btn flex-1" onClick={closeAddSection}>
                 Avbryt
               </button>
             </div>
@@ -2022,7 +2278,18 @@ BOLK: Middag
       {settingsOpen && (
         <ProjectSettingsModal
           session={session}
-          onClose={() => setSettingsOpen(false)}
+          onClose={() => {
+            setSettingsOpen(false);
+            setNewShareEmail("");
+            setShareStatus("");
+          }}
+          isOwner={isOwner}
+          shares={shares}
+          newShareEmail={newShareEmail}
+          onNewShareEmailChange={setNewShareEmail}
+          shareStatus={shareStatus}
+          onAddShare={addShare}
+          onRemoveShare={removeShare}
           nameDraft={nameDraft}
           onNameDraftChange={setNameDraft}
           onNameBlur={() => renameCurrentProject(nameDraft)}
@@ -2702,6 +2969,7 @@ function SectionRow({
   moveDown,
   openEdit,
   removeItem,
+  isDone,
 }: {
   item: LocalItem;
   i: number;
@@ -2711,6 +2979,7 @@ function SectionRow({
   moveDown: (i: number) => void;
   openEdit: (i: number) => void;
   removeItem: (i: number) => void;
+  isDone: boolean;
 }) {
   // Bolk-rader skal se tydelig ULIKE ut fra vanlige punkt-rader (som
   // etterspurt): sterkere fargetone fra bolkens egen farge, tykkere
@@ -2718,7 +2987,13 @@ function SectionRow({
   // nøytrale grå — i stedet for bare litt fetere tekst.
   const bg = hexToRgba(item.color, 0.16);
   const border = hexToRgba(item.color, 0.55);
-  const cell = (pos: "first" | "middle" | "last") => rowCardStyle(bg, border, pos);
+  // Når hele bolken er ferdig (alle punktene i den er passert), tones den
+  // ned litt — samme prinsipp og samme verdi (0.35) som `AgendaRow`
+  // allerede bruker for ferdige enkeltpunkter.
+  const cell = (pos: "first" | "middle" | "last") => ({
+    ...rowCardStyle(bg, border, pos),
+    opacity: isDone ? 0.35 : 1,
+  });
 
   return (
     <tr>

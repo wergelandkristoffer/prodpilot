@@ -237,3 +237,102 @@ update sessions
 set owner_id = (select id from auth.users where email = 'kristoffer.wergeland@gmail.com' limit 1)
 where owner_id is null
   and exists (select 1 from auth.users where email = 'kristoffer.wergeland@gmail.com');
+
+-- ─────────────────────────────────────────────────────────────
+-- DEL PROSJEKT-MIGRASJON (2026-09-10) — flere kan redigere samme prosjekt
+-- Trygt å kjøre på nytt.
+--
+-- Legger til en enkel "project_shares"-tabell: én rad per e-postadresse som
+-- eieren har gitt REDIGERINGS-tilgang til et prosjekt. Ingen egne roller —
+-- alle som er delt med kan redigere programmet akkurat som eieren (legge
+-- til/endre/flytte/slette punkter og bolker), men KUN eieren kan slette
+-- selve prosjektet eller dele/fjerne tilgang for andre.
+-- ─────────────────────────────────────────────────────────────
+
+create table if not exists project_shares (
+  session_id uuid not null references sessions(id) on delete cascade,
+  email text not null,
+  shared_by_email text not null default '',
+  created_at timestamptz not null default now(),
+  primary key (session_id, email)
+);
+
+-- E-post lagres/sammenlignes alltid med små bokstaver — denne sjekken
+-- fanger opp rader satt inn utenom appens egen lower()-normalisering.
+alter table project_shares drop constraint if exists project_shares_email_lower_chk;
+alter table project_shares add constraint project_shares_email_lower_chk
+  check (email = lower(email));
+
+create index if not exists project_shares_email_idx on project_shares (email);
+
+alter table project_shares enable row level security;
+
+-- SELECT: eieren av prosjektet ser alltid alle delinger på det. En bruker
+-- som prosjektet er delt MED skal også kunne se sin egen rad (bl.a. for at
+-- prosjektet skal dukke opp i "Prosjekter"-lista med "Delt av ..."), men
+-- IKKE andres delinger på samme prosjekt.
+drop policy if exists "project_shares select own" on project_shares;
+create policy "project_shares select own" on project_shares
+  for select using (
+    session_id in (select id from sessions where owner_id = auth.uid())
+    or lower(email) = lower(coalesce(auth.jwt() ->> 'email', ''))
+  );
+
+-- INSERT/DELETE: kun eieren av prosjektet kan dele det med noen, eller
+-- fjerne en deling — bortsett fra at en bruker som har fått tilgang også
+-- kan fjerne SIN EGEN rad selv (dvs. "forlate" et delt prosjekt).
+drop policy if exists "project_shares insert own" on project_shares;
+create policy "project_shares insert own" on project_shares
+  for insert with check (
+    session_id in (select id from sessions where owner_id = auth.uid())
+  );
+
+drop policy if exists "project_shares delete own" on project_shares;
+create policy "project_shares delete own" on project_shares
+  for delete using (
+    session_id in (select id from sessions where owner_id = auth.uid())
+    or lower(email) = lower(coalesce(auth.jwt() ->> 'email', ''))
+  );
+
+grant select, insert, delete on public.project_shares to anon, authenticated;
+
+-- agenda_items: de gamle "kun eier"-policyene for insert/update/delete må
+-- droppes og lages på nytt slik at de OGSÅ tillater alle som har fått
+-- prosjektet delt med seg (matchet på innlogget bruker sin egen e-post via
+-- auth.jwt()) — ikke bare den opprinnelige eieren.
+drop policy if exists "agenda_items insert own" on agenda_items;
+create policy "agenda_items insert own" on agenda_items
+  for insert with check (
+    session_id in (select id from sessions where owner_id = auth.uid())
+    or session_id in (
+      select session_id from project_shares
+      where lower(email) = lower(coalesce(auth.jwt() ->> 'email', ''))
+    )
+  );
+
+drop policy if exists "agenda_items update own" on agenda_items;
+create policy "agenda_items update own" on agenda_items
+  for update using (
+    session_id in (select id from sessions where owner_id = auth.uid())
+    or session_id in (
+      select session_id from project_shares
+      where lower(email) = lower(coalesce(auth.jwt() ->> 'email', ''))
+    )
+  );
+
+drop policy if exists "agenda_items delete own" on agenda_items;
+create policy "agenda_items delete own" on agenda_items
+  for delete using (
+    session_id in (select id from sessions where owner_id = auth.uid())
+    or session_id in (
+      select session_id from project_shares
+      where lower(email) = lower(coalesce(auth.jwt() ->> 'email', ''))
+    )
+  );
+
+-- sessions-UPDATE er (og forblir) åpent for alle med lenken (se
+-- AUTH-MIGRASJON-blokken over) — det dekker allerede avspilling/redigering
+-- for delte brukere, så ingen endring trengs der. sessions-DELETE forblir
+-- bevisst eier-only (uendret over): en som har fått prosjektet delt med seg
+-- kan redigere og "forlate" delingen (se project_shares delete-policyen),
+-- men aldri slette selve prosjektet.

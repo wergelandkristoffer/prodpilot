@@ -6,6 +6,11 @@ export interface ProjectOption {
   id: string;
   name: string;
   updated_at: string;
+  // Satt når prosjektet ikke er ens eget, men delt med en av dem (se "Del
+  // prosjekt" i innstillinger) — `ownerEmail` er hvem som delte det, brukt
+  // til "Delt av ..."-merkelappen under.
+  isShared?: boolean;
+  ownerEmail?: string;
 }
 
 /** Prosjektmeny — ligger skjult bak en knapp i toppen av siden, og åpnes som
@@ -75,14 +80,19 @@ export default function ProjectSidebar({
             <button
               key={p.id}
               onClick={() => onSelect(p.id)}
-              title={p.name || "Uten navn"}
-              className={`text-left rounded-md px-2.5 py-2 text-xs truncate transition-colors border ${
+              title={p.isShared && p.ownerEmail ? `${p.name || "Uten navn"} — delt av ${p.ownerEmail}` : p.name || "Uten navn"}
+              className={`text-left rounded-md px-2.5 py-2 text-xs transition-colors border ${
                 p.id === currentId
                   ? "bg-[#141414] text-white border-[#2a2a2a]"
                   : "text-[#a3a3a3] hover:bg-[#0e0e0e] hover:text-[#aaa] border-transparent"
               }`}
             >
-              {p.name || "Uten navn"}
+              <div className="truncate">{p.name || "Uten navn"}</div>
+              {p.isShared && (
+                <div className="text-[9px] text-[#6b8fc9] truncate mt-0.5">
+                  Delt av {p.ownerEmail || "ukjent"}
+                </div>
+              )}
             </button>
           ))}
         </div>
